@@ -26,7 +26,6 @@ if apt-get -h ; then
 else
     if yum -h ; then
         echo "Package manager is yum"
-        yum -y update
         yum install -y wget
         yum install -y mysql
         yum install -y gcc gcc-c++ cyrus-sasl-devel
