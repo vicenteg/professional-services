@@ -747,8 +747,11 @@ class HiveComponent(DatabaseComponent):
         if hive_table_model.inc_col_type == "ts":
 
             try:
-                old_max = parse(old_max)
-                new_max = parse(new_max)
+                if isinstance(old_max, str) or isinstance(old_max, int):
+                    old_max = parse(old_max)
+
+                if isinstance(new_max, str) or isinstance(new_max, int):
+                    new_max = parse(new_max)
 
             except ValueError as error:
                 logger.exception(error)
