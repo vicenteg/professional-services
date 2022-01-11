@@ -116,7 +116,6 @@ def validate_config_parameters(data):
         tracking_db_port = data['Tracking_DB']['port']
         tracking_db_user = data['Tracking_DB']['user']
         tracking_db_name = data['Tracking_DB']['database']
-        tracking_db_password_path = data['Tracking_DB']['password_file_path']
 
         kms_location = data['KMS']['location_id']
         kms_key_ring_id = data['KMS']['key_ring_id']
@@ -126,6 +125,21 @@ def validate_config_parameters(data):
 
     except KeyError:
         raise
+
+    try:
+        tracking_db_password_path = data['Tracking_DB']['password_file_path']
+    except KeyError:
+        tracking_db_password_path = None
+        try:
+            tracking_db_password_secret = data['Tracking_DB']['password_secret_id']
+            tracking_db_password_secret_location = data['Tracking_DB']['password_secret_location']
+        except KeyError:
+            raise
+    else:
+        if not tracking_db_password_path.startswith('gs://'):
+            raise ValueError(
+                "Tracking database password path must start with gs://")
+
 
     hive_table = hive_table.lower()
     if bq_table is None:
@@ -143,10 +157,6 @@ def validate_config_parameters(data):
         gcs_bucket_name = gcs_bucket_name.split('gs://')[1]
     if gcs_bucket_name[-1] == '/':
         gcs_bucket_name = gcs_bucket_name[:-1]
-
-    if not tracking_db_password_path.startswith('gs://'):
-        raise ValueError(
-            "Tracking database password path must start with gs://")
 
     bq_write_mode = bq_write_mode.lower()
 
@@ -173,6 +183,8 @@ def validate_config_parameters(data):
         "tracking_database_user": tracking_db_user,
         "tracking_database_db_name": tracking_db_name,
         "tracking_db_password_path": tracking_db_password_path,
+        "tracking_db_password_secret": tracking_db_password_secret,
+        "tracking_db_password_secret_location": tracking_db_password_secret_location,
         "tracking_metatable_name": tracking_metatable_name,
         "location_id": kms_location,
         "key_ring_id": kms_key_ring_id,

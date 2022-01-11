@@ -25,6 +25,7 @@ from hive_to_bigquery.hive_component import HiveComponent
 from hive_to_bigquery.hive_table import HiveTable
 from hive_to_bigquery import kms_component
 from hive_to_bigquery.mysql_component import MySQLComponent
+from hive_to_bigquery import secret_manager_component
 from hive_to_bigquery.properties_reader import PropertiesReader
 from hive_to_bigquery.resource_validator import ResourceValidator
 from hive_to_bigquery import init_script
@@ -121,19 +122,26 @@ def initialize_components():
     # Initializes the components to connect to MySQL, GCS, BigQuery and Hive.
     gcs_component = GCSStorageComponent(PropertiesReader.get('project_id'))
 
-    encrypted_password = gcs_component.download_file_as_string(
-        PropertiesReader.get('tracking_db_password_path'))
-    decrypted_password = kms_component.decrypt_symmetric(
-        PropertiesReader.get('project_id'),
-        PropertiesReader.get('location_id'),
-        PropertiesReader.get('key_ring_id'),
-        PropertiesReader.get('crypto_key_id'), encrypted_password)
+
+    if PropertiesReader.get('tracking_db_password_secret'):
+        db_password = secret_manager_component.access_secret(
+                PropertiesReader.get('project_id'),
+                PropertiesReader.get('tracking_db_password_secret_location'),
+                PropertiesReader.get('tracking_db_password_secret'))
+    else:
+        encrypted_password = gcs_component.download_file_as_string(
+            PropertiesReader.get('tracking_db_password_path'))
+        db_password = kms_component.decrypt_symmetric(
+            PropertiesReader.get('project_id'),
+            PropertiesReader.get('location_id'),
+            PropertiesReader.get('key_ring_id'),
+            PropertiesReader.get('crypto_key_id'), encrypted_password)
 
     mysql_component = MySQLComponent(
         host=PropertiesReader.get('tracking_database_host'),
         port=PropertiesReader.get('tracking_database_port'),
         user=PropertiesReader.get('tracking_database_user'),
-        password=decrypted_password,
+        password=db_password,
         database=PropertiesReader.get('tracking_database_db_name'))
 
     bq_component = BigQueryComponent(PropertiesReader.get('project_id'))
