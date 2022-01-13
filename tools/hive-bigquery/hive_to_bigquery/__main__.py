@@ -14,6 +14,7 @@
 """Main Module to migrate Hive tables to BigQuery."""
 
 import logging
+import sys
 
 from google.api_core import exceptions
 
@@ -193,6 +194,7 @@ def main():
             logger.error("Check the provided resources")
             logger.info("Check the log file for detailed errors")
             raise RuntimeError
+    # TODO(vincegonzalez) this exception should be more descriptive
     except custom_exceptions.CustomBaseError as error:
         raise RuntimeError from error
 
@@ -225,9 +227,18 @@ def main():
         # Validates the bq_table_write_mode provided by the user.
         bq_component.check_bq_write_mode(mysql_component, hive_table_model,
                                          bq_table_model)
-    except (custom_exceptions.CustomBaseError, exceptions.NotFound,
-            exceptions.AlreadyExists) as error:
+    # TODO(vincegonzalez) this exception should be more descriptive
+    except custom_exceptions.CustomBaseError:
         raise RuntimeError from error
+    except exceptions.NotFound as ex:
+        logger.error(f"The tracking table was not found. If this is the " +
+                "first time you are running a migration for this table, " +
+                "try using overwrite mode first.")
+        logger.error(f"{ex}, exiting")
+        sys.exit(1)
+    except exceptions.AlreadyExists as error:
+        logger.error(f"{ex}, exiting")
+        sys.exit(1)
 
     # If the value of is_first_run is True, it means that the source Hive
     # table is being migrated for the first time.
