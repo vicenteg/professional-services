@@ -25,7 +25,6 @@ def access_secret(project_id, location_id, secret_id):
     client = secretmanager.SecretManagerServiceClient()
 
     secret = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
-    print(secret)
     response = client.access_secret_version(name=secret)
 
     return response.payload.data
