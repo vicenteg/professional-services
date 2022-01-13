@@ -29,6 +29,7 @@ requirements = [
     'pyhive[hive] >= 0.6.1',
     'pymysql >= 0.9.3',
     'google-cloud-bigquery >= 1.9.0, < 2.0.0dev',
+    'google-cloud-secret-manager >= 2.8.0',
     'google-cloud-storage >= 1.14.0, < 2.0.0dev',
     'google-cloud-kms >= 1.0.0, < 2.0.0dev',
     "setuptools >= 34.0.0",
