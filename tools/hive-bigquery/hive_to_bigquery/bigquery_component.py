@@ -189,7 +189,8 @@ class BigQueryComponent(GCPService):
                     "BigQuery Table {} already exist in {} dataset".format(
                         bq_table_model.table_name, bq_table_model.dataset_id))
 
-        else:
+        elif write_mode == "append":
+            logger.info(f"'{write_mode}' mode selected.")
             if hive_table_model.is_first_run is False:
                 query = "SELECT COUNT(*) FROM {} WHERE " \
                         "bq_job_status='RUNNING' OR " \
@@ -210,6 +211,8 @@ class BigQueryComponent(GCPService):
                 raise exceptions.NotFound(
                     "Tracking Table {} doesn't exist".format(
                         hive_table_model.tracking_table_name))
+        else:
+            raise ValueError(f"Invalid write mode selected: {write_mode}")
 
     def start_load_job(self, bq_table_model, source_uri, job_id):
         """Starts BigQuery load job asynchronously.
