@@ -169,6 +169,7 @@ class BigQueryComponent(GCPService):
             boolean: True if the write mode is okay to use, else False.
         """
         write_mode = PropertiesReader.get('bq_table_write_mode')
+        logger.info(f"'{write_mode}' mode selected.")
         if write_mode == "overwrite":
             logger.debug("Deleting tracking table and BigQuery table...")
             mysql_component.drop_table(hive_table_model.tracking_table_name)
@@ -190,7 +191,6 @@ class BigQueryComponent(GCPService):
                         bq_table_model.table_name, bq_table_model.dataset_id))
 
         elif write_mode == "append":
-            logger.info(f"'{write_mode}' mode selected.")
             if hive_table_model.is_first_run is False:
                 query = "SELECT COUNT(*) FROM {} WHERE " \
                         "bq_job_status='RUNNING' OR " \
