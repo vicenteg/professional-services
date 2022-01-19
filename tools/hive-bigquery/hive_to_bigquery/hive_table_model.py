@@ -186,7 +186,7 @@ class HiveTableModel(object):
         if value in [True, False]:
             self._is_first_run = value
         else:
-            logger.debug("Can't set is_first_run to other than True/False")
+            raise(ValueError(f"Can't set is_first_run to other than True/False. Got {value}"))
 
     def flatten_schema(self):
         """Returns Hive table schema in flat structure.
