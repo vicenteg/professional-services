@@ -16,6 +16,7 @@
 import logging
 import sys
 
+from requests.exceptions import ConnectionError
 from google.api_core import exceptions
 from prefect import case, task, Flow
 from prefect.tasks.control_flow import merge
@@ -35,6 +36,17 @@ from hive_to_bigquery import init_script
 
 logger = logging.getLogger('Hive2BigQuery')
 
+@task
+def get_hive_table_row_count(hive_table_model):
+    gcs_component, mysql_component, bq_component, hive_component = initialize()
+
+    return hive_component.get_hive_table_row_count(hive_table_model)
+
+@task
+def get_bigquery_table_row_count(bq_table_model):
+    gcs_component, mysql_component, bq_component, hive_component = initialize()
+
+    return bq_component.get_bq_table_row_count(bq_table_model)
 
 def compare_row_counts(bq_component, hive_component, gcs_component,
                        hive_table_model, bq_table_model):
@@ -241,18 +253,20 @@ def validate_tracking_table(hive_table_model):
 
     try:
         # Verifies whether the tracking table exists from the previous run.
-        mysql_component.check_tracking_table_exists(hive_table_model)
+        hive_table_model = mysql_component.update_hive_table_model_from_tracking_table(hive_table_model)
     except custom_exceptions.MySQLExecutionError as error:
         raise RuntimeError from error
 
+    return hive_table_model
 
-@task
+
+@task(nout=2)
 def validate_bigquery_write_mode(hive_table_model, bq_table_model):
     gcs_component, mysql_component, bq_component, hive_component = initialize()
 
     try:
         # Validates the bq_table_write_mode provided by the user.
-        bq_component.check_bq_write_mode(mysql_component, hive_table_model,
+        hive_table_model = bq_component.check_bq_write_mode(mysql_component, hive_table_model,
                                          bq_table_model)
     # TODO(vincegonzalez) this exception should be more descriptive
     except custom_exceptions.CustomBaseError:
@@ -265,6 +279,8 @@ def validate_bigquery_write_mode(hive_table_model, bq_table_model):
     except exceptions.AlreadyExists as ex:
         logger.error(f"{ex}, Tracking table already exists.")
         raise
+
+    return hive_table_model, bq_table_model
 
 
 def get_migration_tracking_data(hive_table_model):
@@ -281,7 +297,7 @@ def get_migration_tracking_data(hive_table_model):
     return tracking_data
 
 
-def create_tracking_table(hive_table_model, tracking_data):
+def create_tracking_table(hive_table_model):
     gcs_component, mysql_component, bq_component, hive_component = initialize()
 
     try:
@@ -324,7 +340,7 @@ def migration_first_run(hive_table_model, bq_table_model, properties_reader):
 
     logger.debug("Migrating for the first time")
     tracking_data = get_migration_tracking_data(hive_table_model)
-    create_tracking_table(hive_table_model, tracking_data)
+    create_tracking_table(hive_table_model)
     migrate_data(hive_table_model, bq_table_model, tracking_data, PropertiesReader)
     update_bigquery_jobs_status(hive_table_model, bq_table_model, PropertiesReader)
 
@@ -333,6 +349,7 @@ def migration_first_run(hive_table_model, bq_table_model, properties_reader):
 def migration_second_run(hive_table_model, bq_table_model, properties_reader):
     gcs_component, mysql_component, bq_component, hive_component = initialize()
 
+    create_tracking_table(hive_table_model)
     logger.info(
         "Tracking table already exists. Continuing from the previous "
         "iteration...")
@@ -414,35 +431,35 @@ def main():
                     check_metadata_table_exists(PropertiesReader),
                     validate_resources()])
 
-        bq_table_model = get_bigquery_table(hive_table_model, PropertiesReader)
+        updated_hive_table_model = validate_tracking_table(hive_table_model)
 
-        with case(is_migration_first_run(hive_table_model), True):
-            compare_row_counts_task(hive_table_model, bq_table_model,
+        bq_table_model = get_bigquery_table(updated_hive_table_model, PropertiesReader)
+
+        updated_hive_table_model, bq_table_model = validate_bigquery_write_mode(updated_hive_table_model, bq_table_model)
+
+        with case(is_migration_first_run(updated_hive_table_model), True):
+            compare_row_counts_task(updated_hive_table_model, bq_table_model,
                     upstream_tasks=[
-                        check_for_new_data_and_migrate(hive_table_model, bq_table_model,
+                        check_for_new_data_and_migrate(updated_hive_table_model, bq_table_model,
                                 upstream_tasks=[
-                                    migration_first_run(hive_table_model, bq_table_model, PropertiesReader,
-                                            upstream_tasks=[
-                                                validate_tracking_table(hive_table_model),
-                                                validate_bigquery_write_mode(hive_table_model, bq_table_model)
-                                                ])
-                                    ])
+                                    migration_first_run(updated_hive_table_model, bq_table_model, PropertiesReader)
+                                ])
                         ])
 
-        with case(is_migration_first_run(hive_table_model), False):
-            compare_row_counts_task(hive_table_model, bq_table_model,
+        with case(is_migration_first_run(updated_hive_table_model), False):
+            compare_row_counts_task(updated_hive_table_model, bq_table_model,
                     upstream_tasks=[
-                        check_for_new_data_and_migrate(hive_table_model, bq_table_model,
+                        check_for_new_data_and_migrate(updated_hive_table_model, bq_table_model,
                                 upstream_tasks=[
-                                    migration_second_run(hive_table_model, bq_table_model, PropertiesReader,
-                                            upstream_tasks=[
-                                                validate_tracking_table(hive_table_model),
-                                                validate_bigquery_write_mode(hive_table_model, bq_table_model)
-                                                ])
-                                    ])
+                                    migration_second_run(updated_hive_table_model, bq_table_model, PropertiesReader)
+                                ])
                         ])
 
-    flow.register(project_name="migration")
+    try:
+        flow.register(project_name="migration")
+
+    except ConnectionError as ex:
+        logger.warning(f"Unable to register flow: {ex}")
     flow.visualize(filename="flow")
     flow_state = flow.run()
     flow.visualize(filename="completed_flow", flow_state=flow_state)
