@@ -62,6 +62,21 @@ class GCSStorageComponent(GCPService):
         except auth_exceptions.DefaultCredentialsError as error:
             raise custom_exceptions.ConnectionError from error
 
+    def upload_from_string(self, bucket_name, data, blob_name):
+        """Uploads local file to GCS bucket.
+
+        Args:
+            bucket_name (str): GCS bucket name.
+            data (str): Local file name to be uploaded.
+            blob_name (str): Destination path of the object.
+        """
+
+        bucket = self.client.get_bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        blob.upload_from_string(data)
+        uri = 'gs://{}/{}'.format(bucket_name, blob_name)
+        return uri
+
     def upload_file(self, bucket_name, file_name, blob_name):
         """Uploads local file to GCS bucket.
 
@@ -192,16 +207,13 @@ class GCSStorageComponent(GCPService):
                     file_info[file_name] = source_location
             source_locations = ' '.join(file_info.values())
             filename = "file_info_{}.json".format(uuid4())
-            # Dictionary of file names and their locations
-            with open(filename, "w") as file_content:
-                file_content.write(str(file_info))
 
             target_blob = "BQ_staging/{}/{}/{}/".format(
                 hive_table_model.db_name, hive_table_model.table_name.lower(),
                 str(uuid4()).replace("-", "_"))
             # Uploads file to create a folder like structure in GCS
-            self.upload_file(gcs_bucket_name, filename, target_blob + filename)
-            os.remove(filename)
+            self.upload_from_string(gcs_bucket_name, str(file_info), target_blob + filename)
+            logger.info(f"Uploaded to: {gcs_bucket_name}, {target_blob + filename}")
 
             target_folder_location = "gs://{}/{}".format(
                 gcs_bucket_name, target_blob)
