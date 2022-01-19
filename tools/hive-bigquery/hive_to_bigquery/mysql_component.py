@@ -162,8 +162,8 @@ class MySQLComponent(DatabaseComponent):
                 logger.info(
                     "Dropped the empty tracking table {}".format(table_name))
 
-    def check_tracking_table_exists(self, hive_table_model):
-        """Checks whether the tracking table exists.
+    def get_tracking_table_data(self, hive_table_model):
+        """Retrieves tracking table information.
 
         Checks whether the tracking table exists from the previous migration
         run (if any) and updates the attributes (is_first_run,
@@ -182,20 +182,40 @@ class MySQLComponent(DatabaseComponent):
                 PropertiesReader.get('tracking_metatable_name'),
                 hive_table_model.db_name, hive_table_model.table_name,
                 hive_table_model.bq_table_name))
-        if results:
+        return results
+
+
+    def update_hive_table_model_from_tracking_table(self, hive_table_model):
+        """Update the hive table model from tracking table data, if the
+        tracking table exists.
+
+        Checks whether the tracking table exists from the previous migration
+        run (if any) and updates the attributes (is_first_run,
+        tracking_table_name, is_inc_col_present, inc_col, inc_col_type) of the
+        HiveTableModel instance.
+
+        Args:
+            hive_table_model (:class:`HiveTableModel`): Wrapper to Hive table
+                details.
+        """
+
+        tracking_table_results = self.get_tracking_table_data(hive_table_model)
+        if tracking_table_results:
+            logger.debug("Tracking table %s found", hive_table_model.tracking_table_name)
+            logger.debug("Setting hive_table_model.is_first_run = False")
             hive_table_model.is_first_run = False
-            hive_table_model.tracking_table_name = results[0][0]
-            hive_table_model.inc_col = results[0][2]
-            hive_table_model.inc_col_type = results[0][3]
+            hive_table_model.tracking_table_name = tracking_table_results[0][0]
+            hive_table_model.inc_col = tracking_table_results[0][2]
+            hive_table_model.inc_col_type = tracking_table_results[0][3]
             if hive_table_model.inc_col == 'None':
                 hive_table_model.inc_col = None
                 hive_table_model.inc_col_type = None
-
-        if hive_table_model.is_first_run:
-            logger.debug("Tracking table does not exist")
         else:
-            logger.debug("Tracking table %s found",
-                         hive_table_model.tracking_table_name)
+            # TODO(vincegonzalez): Is "is_first_run" necessary of the tracking table does not exist?
+            if hive_table_model.is_first_run:
+                logger.debug("Tracking table does not exist")
+
+        return hive_table_model
 
     def update_tracking_meta_table(self, hive_table_model, mode):
         """Updates the tracking metatable with details of the Hive table."""
