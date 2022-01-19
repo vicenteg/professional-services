@@ -171,6 +171,8 @@ class BigQueryComponent(GCPService):
         write_mode = PropertiesReader.get('bq_table_write_mode')
         logger.info(f"'{write_mode}' mode selected.")
         if write_mode == "overwrite":
+            # TODO(vincegonzalez): Don't delete the BQ table, instead replace 
+            # TODO(vincegonzalez): it with the load job.
             logger.debug("Deleting tracking table and BigQuery table...")
             mysql_component.drop_table(hive_table_model.tracking_table_name)
             mysql_component.update_tracking_meta_table(hive_table_model,
@@ -213,6 +215,8 @@ class BigQueryComponent(GCPService):
                         hive_table_model.tracking_table_name))
         else:
             raise ValueError(f"Invalid write mode selected: {write_mode}")
+
+        return hive_table_model
 
     def start_load_job(self, bq_table_model, source_uri, job_id):
         """Starts BigQuery load job asynchronously.
@@ -391,9 +395,9 @@ class BigQueryComponent(GCPService):
                                         bq_job_id)
                             mysql_component.execute_transaction(query)
                             logger.info(
-                                "BigQuery job {} failed.Tried for a maximum "
-                                "of 3 times.Updated status RUNNING --> "
-                                "FAILED".format(bq_job_id))
+                                f"BigQuery job {bq_job_id} failed.Tried for a maximum "
+                                f"of {bq_load_job_max_retries} times.Updated status RUNNING --> "
+                                "FAILED")
                         else:
                             query = "UPDATE {0} SET bq_job_status='TODO'," \
                                     "bq_job_retries={1} WHERE " \
@@ -402,9 +406,9 @@ class BigQueryComponent(GCPService):
                                         bq_job_retries + 1, bq_job_id)
                             mysql_component.execute_transaction(query)
                             logger.info(
-                                "BigQuery job {} failed.Updated status "
+                                f"BigQuery job {bq_job_id} failed.Updated status "
                                 "RUNNING --> TODO & increased retries count "
-                                "by 1".format(bq_job_id))
+                                "by 1")
 
                 elif job.state == 'RUNNING':
                     # Count of jobs which are still in running state.
