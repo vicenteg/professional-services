@@ -404,8 +404,8 @@ class BigQueryComponent(GCPService):
                         )
                         mysql_component.execute_transaction(query)
                         logger.info(
-                            "Updated BigQuery load job {} status RUNNING --> "
-                            "DONE".format(bq_job_id)
+                            "Updated BigQuery load job {} for {} status RUNNING --> "
+                            "DONE".format(bq_job_id, hive_table_model.table_name)
                         )
                         # Deletes the data file in GCS.
                         gcs_component.delete_file(gcs_bucket_name, gcs_file_path)
@@ -450,8 +450,8 @@ class BigQueryComponent(GCPService):
             if count == 0:
                 logger.info("No BigQuery job is in RUNNING state. No values to update")
                 break
-            # logger.info("Waiting for 1 min..")
-            # time.sleep(60)
+            logger.info("Waiting for 1 min..")
+            time.sleep(60)
             logger.info(
                 "Fetching information about BigQuery load jobs from tracking "
                 "table..."
