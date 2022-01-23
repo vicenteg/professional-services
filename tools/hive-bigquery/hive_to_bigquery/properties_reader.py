@@ -17,7 +17,7 @@
 class PropertiesReader(object):
     """Properties reader to read properties from a dictionary."""
 
-    properties = ''
+    properties = ""
 
     def __init__(self, config):
         PropertiesReader.properties = config
@@ -39,5 +39,4 @@ class PropertiesReader(object):
         if key in PropertiesReader.properties:
             return PropertiesReader.properties[key]
         else:
-            raise KeyError(
-                "Key {} is not present in Properties Reader".format(key))
+            raise KeyError("Key {} is not present in Properties Reader".format(key))
