@@ -16,7 +16,7 @@
 import logging
 import subprocess
 
-logger = logging.getLogger('Hive2BigQuery')
+logger = logging.getLogger("Hive2BigQuery")
 
 
 def calculate_time(start, end):
@@ -37,14 +37,13 @@ def calculate_time(start, end):
     seconds = time_taken - ((day * 86400) + (hour * 3600) + (minutes * 60))
 
     if day != 0:
-        output = '{} days {} hours {} min {} sec'.format(
-            day, hour, minutes, seconds)
+        output = "{} days {} hours {} min {} sec".format(day, hour, minutes, seconds)
     elif hour != 0:
-        output = '{} hours {} min {} sec'.format(hour, minutes, seconds)
+        output = "{} hours {} min {} sec".format(hour, minutes, seconds)
     elif minutes != 0:
-        output = '{} min {} sec'.format(minutes, seconds)
+        output = "{} min {} sec".format(minutes, seconds)
     else:
-        output = '{} sec'.format(seconds)
+        output = "{} sec".format(seconds)
 
     return output
 
@@ -57,9 +56,7 @@ def execute_command(cmd):
         cmd (List): Command to execute, split into a list.
     """
 
-    process = subprocess.Popen(cmd,
-                               stdout=subprocess.PIPE,
-                               stderr=subprocess.STDOUT)
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     while process.poll() is None:
         while True:
             output = process.stdout.readline().decode()
