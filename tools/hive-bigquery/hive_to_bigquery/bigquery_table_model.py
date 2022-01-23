@@ -21,7 +21,7 @@ from uuid import uuid4
 
 from hive_to_bigquery.properties_reader import PropertiesReader
 
-logger = logging.getLogger('Hive2BigQuery')
+logger = logging.getLogger("Hive2BigQuery")
 
 
 class BigQueryTableModel(object):
@@ -38,48 +38,52 @@ class BigQueryTableModel(object):
             one of Avro, ORC, and Parquet.
         flat_schema (dict): Flattened schema of the table.
     """
+
     def __init__(self, **kwargs):
-        logger.debug('Initializing BigQueryTableModel object')
-        self._table_details = kwargs['table_details']
-        self.data_format = kwargs['data_format']
+        logger.debug("Initializing BigQueryTableModel object")
+        self._table_details = kwargs["table_details"]
+        self.data_format = kwargs["data_format"]
         self._flat_schema = None
 
     def __str__(self):
         """Iterates over the attributes dictionary of BigQueryTableModel
         object and returns a string which contains all the attribute values."""
 
-        model = 'BigQuery Table Model\n'
+        model = "BigQuery Table Model\n"
         for key, value in self.__dict__.items():
-            model += key + ' : ' + str(value) + '\n'
+            model += key + " : " + str(value) + "\n"
         return model
 
     @property
     def dataset_id(self):
-        return self._table_details['dataset_id']
+        return self._table_details["dataset_id"]
 
     @property
     def table_name(self):
-        return self._table_details['table_name']
+        return self._table_details["table_name"]
 
     @property
     def schema(self):
-        if self._table_details['schema'] is None:
-            filename = 'bq_schema_{}.json'.format(uuid4())
-            os.system('bq show --format=prettyjson {0}.{1} > {2}'.format(
-                self.dataset_id, self.table_name, filename))
-            with open(filename, 'r') as file_content:
+        if self._table_details["schema"] is None:
+            filename = "bq_schema_{}.json".format(uuid4())
+            os.system(
+                "bq show --format=prettyjson {0}.{1} > {2}".format(
+                    self.dataset_id, self.table_name, filename
+                )
+            )
+            with open(filename, "r") as file_content:
                 schema = json.load(file_content)
             os.remove(filename)
-            self._table_details['schema'] = schema['schema']['fields']
-        return self._table_details['schema']
+            self._table_details["schema"] = schema["schema"]["fields"]
+        return self._table_details["schema"]
 
     @property
     def partition_column(self):
-        return self._table_details['partition_column']
+        return self._table_details["partition_column"]
 
     @property
     def clustering_columns(self):
-        return self._table_details['clustering_columns']
+        return self._table_details["clustering_columns"]
 
     @property
     def n_cols(self):
@@ -93,7 +97,7 @@ class BigQueryTableModel(object):
 
     @property
     def is_clustered(self):
-        if PropertiesReader.get('use_clustering') and self.clustering_columns:
+        if PropertiesReader.get("use_clustering") and self.clustering_columns:
             return True
         return False
 
@@ -136,6 +140,7 @@ class BigQueryTableModel(object):
             "col_name__value"   : "INTEGER"
         }
         Uses string extraction to flatten the schema."""
+
         def recursively_flatten(schema, col_name):
             """Iterates through the nested fields and gets the data types.
 
@@ -144,52 +149,51 @@ class BigQueryTableModel(object):
                 col_name (str): Flattened column name.
             """
             for item in schema:
-                name = col_name + item['name']
-                if item['mode'] == 'REPEATED':
-                    col_type = item['type'] + '_' + item['mode']
+                name = col_name + item["name"]
+                if item["mode"] == "REPEATED":
+                    col_type = item["type"] + "_" + item["mode"]
                 else:
-                    col_type = item['type']
+                    col_type = item["type"]
 
                 flat_schema[name] = col_type
 
                 if "RECORD" in col_type:
-                    recursively_flatten(item['fields'], name + '__')
+                    recursively_flatten(item["fields"], name + "__")
 
         flat_schema = OrderedDict()
-        recursively_flatten(self.schema, '')
+        recursively_flatten(self.schema, "")
 
         if self.data_format == "Parquet":
             match_keys = []
             for key in flat_schema.keys():
-                if key.endswith('__bag__array_element'):
+                if key.endswith("__bag__array_element"):
                     match_keys.append(key)
-                if key.endswith('__map'):
+                if key.endswith("__map"):
                     match_keys.append(key)
             for key in match_keys:
-                find_string = '__bag__array_element'
+                find_string = "__bag__array_element"
                 value = flat_schema[key]
                 if key.endswith(find_string):
                     flat_schema.pop(key, None)
-                    flat_schema.pop(key[:-len('__array_element')], None)
+                    flat_schema.pop(key[: -len("__array_element")], None)
 
-                    flat_schema[key[:-len(find_string)]] = value
-                    if not value.endswith('_REPEATED'):
-                        flat_schema[key[:-len(find_string)]] += '_REPEATED'
-                if key.endswith('__map'):
+                    flat_schema[key[: -len(find_string)]] = value
+                    if not value.endswith("_REPEATED"):
+                        flat_schema[key[: -len(find_string)]] += "_REPEATED"
+                if key.endswith("__map"):
                     flat_schema.pop(key, None)
-                    flat_schema[key[:-len('__map')]] = value
+                    flat_schema[key[: -len("__map")]] = value
 
             for key in flat_schema.keys():
                 value = flat_schema[key]
-                if '__bag__array_element' in key:
-                    flat_schema[key.replace('__bag__array_element',
-                                            '')] = value
+                if "__bag__array_element" in key:
+                    flat_schema[key.replace("__bag__array_element", "")] = value
                     flat_schema.pop(key, None)
-                if '__map__key' in key:
-                    flat_schema[key.replace('__map__key', '__key')] = value
+                if "__map__key" in key:
+                    flat_schema[key.replace("__map__key", "__key")] = value
                     flat_schema.pop(key, None)
-                if '__map__value' in key:
-                    flat_schema[key.replace('__map__value', '__value')] = value
+                if "__map__value" in key:
+                    flat_schema[key.replace("__map__value", "__value")] = value
                     flat_schema.pop(key, None)
 
         return flat_schema
