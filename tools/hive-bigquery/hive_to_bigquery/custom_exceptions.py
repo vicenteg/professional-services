@@ -16,6 +16,7 @@
 
 class CustomBaseError(Exception):
     """Base class for all the custom exceptions"""
+
     def __init__(self):
         pass
 
@@ -23,30 +24,36 @@ class CustomBaseError(Exception):
 class ArgumentInitializationError(CustomBaseError):
     """Raised when there is an error in initializing the variables like
     BigQuery table name, Hive port number, MySQL port number etc."""
+
     pass
 
 
 class ConnectionError(CustomBaseError):
     """Raised when there is a connection failure to any of the Hive, BigQuery,
     GCS, and MySQL components."""
+
     pass
 
 
 class MySQLExecutionError(CustomBaseError):
     """Raised when there is a failure in executing query on MySQL database."""
+
     pass
 
 
 class HiveExecutionError(CustomBaseError):
     """Raised when there is a failure in executing query on Hive database."""
+
     pass
 
 
 class IncrementalColumnError(CustomBaseError):
     """Raised when the provided incremental column is not valid."""
+
     pass
 
 
 class HDFSCommandError(CustomBaseError):
     """Raised when HDFS command execution fails."""
+
     pass

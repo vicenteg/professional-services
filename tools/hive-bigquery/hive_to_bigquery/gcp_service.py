@@ -23,6 +23,7 @@ class GCPService:
         project_id (str): GCP Project ID.
         description (str): Description of the client.
     """
+
     __metaclass__ = ABCMeta
 
     def __init__(self, project_id, description):

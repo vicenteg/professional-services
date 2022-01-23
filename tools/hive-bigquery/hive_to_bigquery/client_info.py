@@ -28,4 +28,3 @@ def get_gapic_client_info():
 
 def get_http_client_info():
     return http_client_info.ClientInfo(user_agent=USER_AGENT)
-
