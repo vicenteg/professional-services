@@ -26,31 +26,31 @@ from setuptools import setup, find_packages
 here = pathlib.Path(__file__).parent
 
 requirements = [
-    'pyhive[hive] >= 0.6.1',
-    'pymysql >= 0.9.3',
-    'google-cloud-bigquery >= 1.9.0, < 2.0.0dev',
-    'google-cloud-secret-manager >= 2.8.0',
-    'google-cloud-storage >= 1.14.0, < 2.0.0dev',
-    'google-cloud-kms >= 1.0.0, < 2.0.0dev',
+    "pyhive[hive] >= 0.6.1",
+    "pymysql >= 0.9.3",
+    "google-cloud-bigquery >= 1.9.0, < 2.0.0dev",
+    "google-cloud-secret-manager >= 2.8.0",
+    "google-cloud-storage >= 1.14.0, < 2.0.0dev",
+    "google-cloud-kms >= 1.0.0, < 2.0.0dev",
     "setuptools >= 34.0.0",
 ]
 
 setup(
-    name='cloud-pso-hive-bigquery',
-    version='0.0.2',
-    description='hive to bigquery',
-    url='https://github.com/GoogleCloudPlatform/professional-services/tree/master/tools/hive-bigquery',
+    name="cloud-pso-hive-bigquery",
+    version="0.0.2",
+    description="hive to bigquery",
+    url="https://github.com/GoogleCloudPlatform/professional-services/tree/master/tools/hive-bigquery",
     classifiers=[
-        'Development Status :: 4 - Beta',
-        'Intended Audience :: Developers',
-        'License :: OSI Approved :: Apache 2',
-        'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.5',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3.8',
+        "Development Status :: 4 - Beta",
+        "Intended Audience :: Developers",
+        "License :: OSI Approved :: Apache 2",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.5",
+        "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
     ],
     packages=find_packages(where=str(here)),
-    python_requires='>=3.5, <4',
-    install_requires=requirements
+    python_requires=">=3.5, <4",
+    install_requires=requirements,
 )
