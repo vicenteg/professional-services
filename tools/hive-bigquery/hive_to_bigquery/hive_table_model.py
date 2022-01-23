@@ -18,7 +18,7 @@ from collections import OrderedDict
 from uuid import uuid4
 import hashlib
 
-logger = logging.getLogger('Hive2BigQuery')
+logger = logging.getLogger("Hive2BigQuery")
 
 
 class HiveTableModel(object):
@@ -41,26 +41,28 @@ class HiveTableModel(object):
             migrated for the first time.
         flat_schema (dict): Flattened schema of the table.
     """
+
     def __init__(self, **kwargs):
 
-        logger.debug('Initializing HiveTableModel Object')
+        logger.debug("Initializing HiveTableModel Object")
 
-        self._table_details = kwargs['table_details']
+        self._table_details = kwargs["table_details"]
         self._inc_col_details = {
-            "name": kwargs['inc_col'],
+            "name": kwargs["inc_col"],
             "type": None,
-            "options": kwargs['inc_col_options']
+            "options": kwargs["inc_col_options"],
         }
         self._destination_details = {
-            "data_format": kwargs['destination_data_format'],
-            "bq_table": kwargs['bq_table_name']
+            "data_format": kwargs["destination_data_format"],
+            "bq_table": kwargs["bq_table_name"],
         }
-        self.create_statement = kwargs['create_statement']
+        self.create_statement = kwargs["create_statement"]
         encode_string = "{}_{}_{}".format(
-            self.db_name, self.table_name,
-            self._destination_details['bq_table'])
-        self._tracking_table_name = "hive_bq_" + hashlib.md5(
-            encode_string.encode('utf-8')).hexdigest()
+            self.db_name, self.table_name, self._destination_details["bq_table"]
+        )
+        self._tracking_table_name = (
+            "hive_bq_" + hashlib.md5(encode_string.encode("utf-8")).hexdigest()
+        )
         self._is_first_run = True
         self._flat_schema = None
 
@@ -68,34 +70,34 @@ class HiveTableModel(object):
         """Iterates over the attributes dictionary of HiveTableModel object
         and returns a string which contains all the attribute values."""
 
-        model = 'Hive Table Model\n'
+        model = "Hive Table Model\n"
         for key, value in self.__dict__.items():
-            model += key + ' : ' + str(value) + '\n'
+            model += key + " : " + str(value) + "\n"
         return model
 
     @property
     def db_name(self):
-        return self._table_details['database_name']
+        return self._table_details["database_name"]
 
     @property
     def table_name(self):
-        return self._table_details['table_name']
+        return self._table_details["table_name"]
 
     @property
     def schema(self):
-        return self._table_details['schema']
+        return self._table_details["schema"]
 
     @property
     def input_format(self):
-        return self._table_details['input_format']
+        return self._table_details["input_format"]
 
     @property
     def partition_info(self):
-        return self._table_details['partition_info']
+        return self._table_details["partition_info"]
 
     @property
     def is_table_type_supported(self):
-        return self._table_details['is_table_type_supported']
+        return self._table_details["is_table_type_supported"]
 
     @property
     def n_cols(self):
@@ -103,7 +105,7 @@ class HiveTableModel(object):
 
     @property
     def is_partitioned(self):
-        if self._table_details['partition_info']:
+        if self._table_details["partition_info"]:
             return True
         return False
 
@@ -115,7 +117,7 @@ class HiveTableModel(object):
 
     @property
     def is_inc_col_present(self):
-        if self._inc_col_details['name']:
+        if self._inc_col_details["name"]:
             return 1
         return 0
 
@@ -130,42 +132,41 @@ class HiveTableModel(object):
 
     @property
     def inc_col(self):
-        return self._inc_col_details['name']
+        return self._inc_col_details["name"]
 
     @inc_col.setter
     def inc_col(self, value):
         logger.debug("Setting value inc_col to %s", value)
-        self._inc_col_details['name'] = value
+        self._inc_col_details["name"] = value
 
     @property
     def inc_col_type(self):
-        return self._inc_col_details['type']
+        return self._inc_col_details["type"]
 
     @inc_col_type.setter
     def inc_col_type(self, value):
         logger.debug("Setting value inc_col_type to %s", value)
-        self._inc_col_details['type'] = value
+        self._inc_col_details["type"] = value
 
     @property
     def int_type_col(self):
-        return self._inc_col_details['options']['int']
+        return self._inc_col_details["options"]["int"]
 
     @property
     def timestamp_type_col(self):
-        return self._inc_col_details['options']['timestamp']
+        return self._inc_col_details["options"]["timestamp"]
 
     @property
     def staging_table_name(self):
-        return 'stage__{}__{}'.format(self.table_name,
-                                      str(uuid4()).replace("-", "_"))
+        return "stage__{}__{}".format(self.table_name, str(uuid4()).replace("-", "_"))
 
     @property
     def destination_data_format(self):
-        return self._destination_details['data_format']
+        return self._destination_details["data_format"]
 
     @property
     def bq_table_name(self):
-        return self._destination_details['bq_table']
+        return self._destination_details["bq_table"]
 
     @property
     def tracking_table_name(self):
@@ -186,7 +187,11 @@ class HiveTableModel(object):
         if value in [True, False]:
             self._is_first_run = value
         else:
-            raise(ValueError(f"Can't set is_first_run to other than True/False. Got {value}"))
+            raise (
+                ValueError(
+                    f"Can't set is_first_run to other than True/False. Got {value}"
+                )
+            )
 
     def flatten_schema(self):
         """Returns Hive table schema in flat structure.
@@ -208,6 +213,7 @@ class HiveTableModel(object):
         Returns:
             dict: A dictionary mapping flattened columns and their data types.
         """
+
         def recursively_flatten(name, item_type):
             """Iterates through the nested fields and gets the data types.
 
@@ -216,40 +222,45 @@ class HiveTableModel(object):
                 item_type (str): Flattened column type.
             """
             columns.append(name)
-            if '<' in item_type:
-                col_type = item_type.split('<')[0]
+            if "<" in item_type:
+                col_type = item_type.split("<")[0]
                 # If type is array, recursively flatten the nested structure.
-                if col_type == 'array':
-                    col_types.append('array')
-                    recursively_flatten(
-                        name, '<'.join(item_type.split('<')[1:])[:-1])
+                if col_type == "array":
+                    col_types.append("array")
+                    recursively_flatten(name, "<".join(item_type.split("<")[1:])[:-1])
                 # If type is map, recursively flatten the value in the map.
-                elif col_type == 'map':
-                    col_types.append('map')
-                    columns.append(name + '__key')
-                    col_types.append('string')
+                elif col_type == "map":
+                    col_types.append("map")
+                    columns.append(name + "__key")
+                    col_types.append("string")
 
                     recursively_flatten(
-                        name + '__value', ','.join('<'.join(
-                            item_type.split('<')[1:])[:-1].split(',')[1:]))
+                        name + "__value",
+                        ",".join(
+                            "<".join(item_type.split("<")[1:])[:-1].split(",")[1:]
+                        ),
+                    )
 
                 elif col_type == "uniontype":
-                    col_types.append('union')
+                    col_types.append("union")
                 # If type is struct, recursively flatten all the fields inside.
-                elif col_type == 'struct':
-                    col_types.append('struct')
-                    struct_info = '<'.join(item_type.split('<')[1:])[:-1]
+                elif col_type == "struct":
+                    col_types.append("struct")
+                    struct_info = "<".join(item_type.split("<")[1:])[:-1]
                     rand = []
-                    struct_split = struct_info.split(',')
+                    struct_split = struct_info.split(",")
                     for i, struct_item in enumerate(struct_split):
-                        if struct_item.count('<') == struct_item.count('>'):
+                        if struct_item.count("<") == struct_item.count(">"):
                             rand.append(struct_item)
                         else:
-                            struct_split[i + 1] = struct_item + ',' + \
-                                                  struct_split[i + 1]
+                            struct_split[i + 1] = (
+                                struct_item + "," + struct_split[i + 1]
+                            )
                     for item in rand:
-                        recursively_flatten(name + '__' + item.split(':')[0],
-                                            ':'.join(item.split(':')[1:]))
+                        recursively_flatten(
+                            name + "__" + item.split(":")[0],
+                            ":".join(item.split(":")[1:]),
+                        )
 
             else:
                 col_types.append(item_type)
@@ -270,18 +281,20 @@ class HiveTableModel(object):
 
         for key, value in col_dict.items():
             if len(value) >= 2:
-                collapse_string = "array_" * value.count('array') + \
-                                  [item for item in value if item != 'array'][0]
+                collapse_string = (
+                    "array_" * value.count("array")
+                    + [item for item in value if item != "array"][0]
+                )
                 col_dict[key] = collapse_string
             else:
                 col_dict[key] = value[0]
 
         for key, value in col_dict.items():
-            if 'decimal' in value:
-                col_dict[key] = 'decimal'
-            elif 'varchar' in value:
-                col_dict[key] = 'varchar'
-            elif 'char' in value:
-                col_dict[key] = 'char'
+            if "decimal" in value:
+                col_dict[key] = "decimal"
+            elif "varchar" in value:
+                col_dict[key] = "varchar"
+            elif "char" in value:
+                col_dict[key] = "char"
 
         return col_dict
