@@ -14,12 +14,12 @@
 """Main Module to migrate Hive tables to BigQuery."""
 
 import logging
-import sys
 
 from requests.exceptions import ConnectionError
 from google.api_core import exceptions
-from prefect import case, task, Flow
+from prefect import apply_map, case, task, Flow, Parameter
 from prefect.tasks.control_flow import merge
+from prefect.executors import DaskExecutor
 
 from hive_to_bigquery.bigquery_component import BigQueryComponent
 from hive_to_bigquery.bigquery_table import BigQueryTable
@@ -34,7 +34,8 @@ from hive_to_bigquery.properties_reader import PropertiesReader
 from hive_to_bigquery.resource_validator import ResourceValidator
 from hive_to_bigquery import init_script
 
-logger = logging.getLogger('Hive2BigQuery')
+logger = logging.getLogger("Hive2BigQuery")
+
 
 @task
 def get_hive_table_row_count(hive_table_model):
@@ -42,79 +43,86 @@ def get_hive_table_row_count(hive_table_model):
 
     return hive_component.get_hive_table_row_count(hive_table_model)
 
+
 @task
 def get_bigquery_table_row_count(bq_table_model):
     gcs_component, mysql_component, bq_component, hive_component = initialize()
 
     return bq_component.get_bq_table_row_count(bq_table_model)
 
-def compare_row_counts(bq_component, hive_component, gcs_component,
-                       hive_table_model, bq_table_model):
+
+def compare_row_counts(
+    bq_component, hive_component, gcs_component, hive_table_model, bq_table_model
+):
     """Compares the number of rows in Hive and BigQuery tables.
 
-     Once all the load jobs are finished, queries on the Hive and BigQuery
-     tables and compares the number of rows. If matches, calls the function
-     to write comparison metrics to BigQuery. If there is a mismatch in case
-     of a partition table, compares the number of rows in every partition and
-     gets information about the mismatched partitions.
+    Once all the load jobs are finished, queries on the Hive and BigQuery
+    tables and compares the number of rows. If matches, calls the function
+    to write comparison metrics to BigQuery. If there is a mismatch in case
+    of a partition table, compares the number of rows in every partition and
+    gets information about the mismatched partitions.
 
-     Args:
-        bq_component (:class:`BigQueryComponent`): Instance of
-            BigQueryComponent to do BigQuery operations.
-        hive_component (:class:`HiveComponent`): Instance of HiveComponent to
-            connect to Hive.
-        gcs_component (:class:`GCSStorageComponent`): Instance of
-            GCSStorageComponent to do GCS operations.
-        hive_table_model (:class:`HiveTableModel`): Wrapper to Hive table
-            details.
-        bq_table_model (:class:`BigQueryTableModel`): Wrapper to BigQuery
-            table details.
+    Args:
+       bq_component (:class:`BigQueryComponent`): Instance of
+           BigQueryComponent to do BigQuery operations.
+       hive_component (:class:`HiveComponent`): Instance of HiveComponent to
+           connect to Hive.
+       gcs_component (:class:`GCSStorageComponent`): Instance of
+           GCSStorageComponent to do GCS operations.
+       hive_table_model (:class:`HiveTableModel`): Wrapper to Hive table
+           details.
+       bq_table_model (:class:`BigQueryTableModel`): Wrapper to BigQuery
+           table details.
     """
 
     logger.info("Comparing rows...")
     hive_table_rows = hive_component.get_hive_table_row_count(hive_table_model)
     bq_table_rows = bq_component.get_bq_table_row_count(bq_table_model)
-    logger.debug("BigQuery row count %s Hive table row count %s",
-                 bq_table_rows, hive_table_rows)
+    logger.debug(
+        "BigQuery row count %s Hive table row count %s", bq_table_rows, hive_table_rows
+    )
 
     if hive_table_rows == bq_table_rows:
         logger.info("Number of rows matching in BigQuery and Hive tables")
-        if PropertiesReader.get('create_validation_table'):
-            bq_component.write_metrics_to_bigquery(gcs_component,
-                                                   hive_table_model,
-                                                   bq_table_model)
-
     else:
         logger.error("Number of rows not matching in BigQuery and Hive tables")
         # If table is partitioned, compares rows in each partition and
         # provide suggestions whether to redo that partition.
         if hive_table_model.is_partitioned:
             partition_data = hive_component.list_partitions(
-                hive_table_model.db_name, hive_table_model.table_name)
+                hive_table_model.db_name, hive_table_model.table_name
+            )
             for data in partition_data:
-                clause = data['clause']
+                clause = data["clause"]
                 bq_table_rows = bq_component.get_bq_table_row_count(
-                    bq_table_model, clause)
+                    bq_table_model, clause
+                )
                 hive_table_rows = hive_component.get_hive_table_row_count(
-                    hive_table_model, clause)
-                logger.debug("BigQuery row count %s Hive table row count %s",
-                             bq_table_rows, hive_table_rows)
+                    hive_table_model, clause
+                )
+                logger.debug(
+                    "BigQuery row count %s Hive table row count %s",
+                    bq_table_rows,
+                    hive_table_rows,
+                )
 
                 if bq_table_rows == hive_table_rows:
                     logger.debug(
-                        "Number of rows matching in BigQuery and Hive tables %s",
-                        clause)
+                        "Number of rows matching in BigQuery and Hive tables %s", clause
+                    )
                 else:
                     logger.error(
                         "Number of rows not matching in BigQuery and Hive "
-                        "tables {}".format(clause))
+                        "tables {}".format(clause)
+                    )
                     logger.error(
-                        "You may want to delete data {} and reload it".format(
-                            clause))
+                        "You may want to delete data {} and reload it".format(clause)
+                    )
         else:
             logger.error(
                 "You may want to redo the migration since number of rows are "
-                "not matching")
+                "not matching"
+            )
 
 
 def rollback(mysql_component, hive_table_model):
@@ -133,39 +141,78 @@ def rollback(mysql_component, hive_table_model):
     logger.info("Rollback success")
 
 
-def initialize_components(properties_reader):
-    # Initializes the components to connect to MySQL, GCS, BigQuery and Hive.
-    gcs_component = GCSStorageComponent(properties_reader.get('project_id'))
+def initialize_components(config: dict):
+    target = config["target"]
+    source = config["source"]
+    tracking_database = config["tracking_database"]
 
+    gcs_component = GCSStorageComponent(target["project_id"])
 
-    if properties_reader.get('tracking_db_password_secret'):
+    if tracking_database["password_secret_id"]:
         db_password = secret_manager_component.access_secret(
-                properties_reader.get('project_id'),
-                properties_reader.get('tracking_db_password_secret_location'),
-                properties_reader.get('tracking_db_password_secret'))
-    else:
-        encrypted_password = gcs_component.download_file_as_string(
-            properties_reader.get('tracking_db_password_path'))
-        db_password = kms_component.decrypt_symmetric(
-            properties_reader.get('project_id'),
-            properties_reader.get('location_id'),
-            properties_reader.get('key_ring_id'),
-            properties_reader.get('crypto_key_id'), encrypted_password)
+            target["project_id"],
+            tracking_database["password_secret_location"],
+            tracking_database["password_secret_id"],
+        )
 
     mysql_component = MySQLComponent(
-        host=properties_reader.get('tracking_database_host'),
-        port=properties_reader.get('tracking_database_port'),
-        user=properties_reader.get('tracking_database_user'),
+        host=tracking_database["host"],
+        port=tracking_database["port"],
+        user=tracking_database["user"],
         password=db_password,
-        database=properties_reader.get('tracking_database_db_name'))
+        database=tracking_database["database"],
+    )
 
-    bq_component = BigQueryComponent(properties_reader.get('project_id'))
+    bq_component = BigQueryComponent(target["project_id"])
     hive_component = HiveComponent(
-        host=properties_reader.get('hive_server_host'),
-        port=properties_reader.get('hive_server_port'),
-        user=properties_reader.get('hive_server_username'),
+        host=source["host"],
+        port=source["port"],
+        user=source.get("user"),
         password=None,
-        database=None)
+        database=source["tables"][0]["database"],
+    )
+
+    return gcs_component, mysql_component, bq_component, hive_component
+
+
+def _initialize_components(properties_reader):
+    # Initializes the components to connect to MySQL, GCS, BigQuery and Hive.
+    gcs_component = GCSStorageComponent(properties_reader.get("project_id"))
+
+    if properties_reader.get("tracking_db_password_secret"):
+        db_password = secret_manager_component.access_secret(
+            properties_reader.get("project_id"),
+            properties_reader.get("tracking_db_password_secret_location"),
+            properties_reader.get("tracking_db_password_secret"),
+        )
+    else:
+        encrypted_password = gcs_component.download_file_as_string(
+            properties_reader.get("tracking_db_password_path")
+        )
+        db_password = kms_component.decrypt_symmetric(
+            properties_reader.get("project_id"),
+            properties_reader.get("location_id"),
+            properties_reader.get("key_ring_id"),
+            properties_reader.get("crypto_key_id"),
+            encrypted_password,
+        )
+
+    mysql_component = MySQLComponent(
+        host=properties_reader.get("tracking_database_host"),
+        port=properties_reader.get("tracking_database_port"),
+        user=properties_reader.get("tracking_database_user"),
+        password=db_password,
+        database=properties_reader.get("tracking_database_db_name"),
+    )
+
+    bq_component = BigQueryComponent(properties_reader.get("project_id"))
+    hive_component = HiveComponent(
+        host=properties_reader.get("hive_server_host"),
+        port=properties_reader.get("hive_server_port"),
+        user=properties_reader.get("hive_server_username"),
+        password=None,
+        database=None,
+    )
 
     return gcs_component, mysql_component, bq_component, hive_component
 
@@ -177,23 +224,38 @@ def initialize():
         raise RuntimeError from error
 
     logger.debug("Initializing Properties Reader")
-    PropertiesReader(input_config)
+    logger.debug(input_config)
+    PropertiesReader(init_script.validate_config_parameters(input_config))
 
-    gcs_component, mysql_component, bq_component, hive_component = \
-        initialize_components(PropertiesReader)
+    (
+        gcs_component,
+        mysql_component,
+        bq_component,
+        hive_component,
+    ) = initialize_components(input_config)
 
     return gcs_component, mysql_component, bq_component, hive_component
 
 
 @task
-def check_metadata_table_exists(properties_reader):
-    gcs_component, mysql_component, bq_component, hive_component = initialize()
+def _check_metadata_table_exists(properties_reader):
+    _, mysql_component, _, _ = initialize()
 
     try:
         mysql_component.check_table_exists(
-            properties_reader.get('tracking_metatable_name'))
-    except (exceptions.NotFound,
-            custom_exceptions.MySQLExecutionError) as error:
+            properties_reader.get("tracking_metatable_name")
+        )
+    except (exceptions.NotFound, custom_exceptions.MySQLExecutionError) as error:
+        raise RuntimeError from error
+
+
+@task
+def check_metadata_table_exists(tracking_database: dict):
+    _, mysql_component, _, _ = initialize()
+
+    try:
+        mysql_component.check_table_exists(tracking_database["table"])
+    except (exceptions.NotFound, custom_exceptions.MySQLExecutionError) as error:
         raise RuntimeError from error
 
 
@@ -204,8 +266,7 @@ def validate_resources():
     try:
         # Validates the user provided resources.
         logger.debug("Validating the resources")
-        if ResourceValidator.validate(hive_component, gcs_component,
-                                      bq_component):
+        if ResourceValidator.validate(hive_component, gcs_component, bq_component):
             logger.debug("All the provided resources are valid")
         else:
             logger.error("Check the provided resources")
@@ -217,15 +278,16 @@ def validate_resources():
 
 
 @task
-def get_hive_table(properties_reader):
+def get_hive_table(table: dict):
+    logger.debug(f"hive_table_model(table: {table})")
     gcs_component, mysql_component, bq_component, hive_component = initialize()
 
     logger.info("Getting hive table model.")
     try:
-        hive_table_object = HiveTable(hive_component,
-                                      properties_reader.get('hive_database'),
-                                      properties_reader.get('hive_table_name'),
-                                      properties_reader.get('incremental_col'))
+        hive_table_object = HiveTable(
+            hive_component, table["database"], table["name"], table.get("inc_col", None)
+        )
+        logger.info(hive_table_object)
     except custom_exceptions.HiveExecutionError as error:
         raise RuntimeError from error
 
@@ -236,10 +298,8 @@ def get_hive_table(properties_reader):
 
 
 @task
-def get_bigquery_table(hive_table_model, properties_reader):
-    bq_table_object = BigQueryTable(properties_reader.get('dataset_id'),
-                                    properties_reader.get('bq_table'),
-                                    hive_table_model)
+def get_bigquery_table(hive_table_model, target: dict):
+    bq_table_object = BigQueryTable(target["dataset"], target["name"], hive_table_model)
 
     # Wrapper to describe BigQuery table resource.
     bq_table_model = bq_table_object.bq_table_model
@@ -253,34 +313,36 @@ def validate_tracking_table(hive_table_model):
 
     try:
         # Verifies whether the tracking table exists from the previous run.
-        hive_table_model = mysql_component.update_hive_table_model_from_tracking_table(hive_table_model)
+        hive_table_model = mysql_component.update_hive_table_model_from_tracking_table(
+            hive_table_model
+        )
     except custom_exceptions.MySQLExecutionError as error:
         raise RuntimeError from error
 
     return hive_table_model
 
 
-@task(nout=2)
+@task
 def validate_bigquery_write_mode(hive_table_model, bq_table_model):
     gcs_component, mysql_component, bq_component, hive_component = initialize()
 
     try:
         # Validates the bq_table_write_mode provided by the user.
-        hive_table_model = bq_component.check_bq_write_mode(mysql_component, hive_table_model,
-                                         bq_table_model)
-    # TODO(vincegonzalez) this exception should be more descriptive
-    except custom_exceptions.CustomBaseError:
-        raise RuntimeError from error
-    except exceptions.NotFound as ex:
-        logger.error(f"The tracking table was not found. If this is the " +
-                "first time you are running a migration for this table, " +
-                "try using overwrite mode first.")
+        hive_table_model = bq_component.check_bq_write_mode(
+            mysql_component, hive_table_model, bq_table_model
+        )
+    except exceptions.NotFound:
+        logger.error(
+            "The tracking table was not found. If this is the "
+            + "first time you are running a migration for this table, "
+            + "try using overwrite mode first."
+        )
         raise
     except exceptions.AlreadyExists as ex:
         logger.error(f"{ex}, Tracking table already exists.")
         raise
 
-    return hive_table_model, bq_table_model
+    return hive_table_model
 
 
 def get_migration_tracking_data(hive_table_model):
@@ -290,8 +352,10 @@ def get_migration_tracking_data(hive_table_model):
         # Gets information on data to migrate and creates tracking table
         # in Cloud SQL.
         tracking_data = hive_component.get_info_on_data_to_migrate(hive_table_model)
-    except (custom_exceptions.IncrementalColumnError,
-            custom_exceptions.HiveExecutionError) as error:
+    except (
+        custom_exceptions.IncrementalColumnError,
+        custom_exceptions.HiveExecutionError,
+    ) as error:
         raise RuntimeError from error
     logger.info(tracking_data)
     return tracking_data
@@ -312,12 +376,19 @@ def migrate_data(hive_table_model, bq_table_model, tracking_data, properties_rea
     try:
         # Migrates data to BigQuery.
         hive_component.migrate_data(
-            mysql_component, bq_component, gcs_component,
-            hive_table_model, bq_table_model,
-            properties_reader.get('gcs_bucket_name'), tracking_data)
-    except (custom_exceptions.HiveExecutionError,
-            custom_exceptions.HDFSCommandError,
-            custom_exceptions.MySQLExecutionError) as error:
+            mysql_component,
+            bq_component,
+            gcs_component,
+            hive_table_model,
+            bq_table_model,
+            properties_reader.get("gcs_bucket_name"),
+            tracking_data,
+        )
+    except (
+        custom_exceptions.HiveExecutionError,
+        custom_exceptions.HDFSCommandError,
+        custom_exceptions.MySQLExecutionError,
+    ) as error:
         raise RuntimeError from error
 
 
@@ -328,8 +399,12 @@ def update_bigquery_jobs_status(hive_table_model, bq_table_model, properties_rea
         # Updates BigQuery job status and wait for all the jobs to finish.
         # mysql exec error
         bq_component.update_bq_job_status(
-            mysql_component, gcs_component, hive_table_model,
-            bq_table_model, properties_reader.get('gcs_bucket_name'))
+            mysql_component,
+            gcs_component,
+            hive_table_model,
+            bq_table_model,
+            properties_reader.get("gcs_bucket_name"),
+        )
     except custom_exceptions.MySQLExecutionError as error:
         raise RuntimeError from error
 
@@ -351,20 +426,27 @@ def migration_second_run(hive_table_model, bq_table_model, properties_reader):
 
     create_tracking_table(hive_table_model)
     logger.info(
-        "Tracking table already exists. Continuing from the previous "
-        "iteration...")
+        "Tracking table already exists. Continuing from the previous " "iteration..."
+    )
     try:
         # Copies the pending files from the previous run to GCS, loads them
         # to BigQuery and updates the BigQuery load job status.
         # mysqlexec
-        gcs_component.stage_to_gcs(mysql_component, bq_component,
-                                   hive_table_model, bq_table_model,
-                                   properties_reader.get('gcs_bucket_name'))
-        bq_component.load_gcs_to_bq(mysql_component, hive_table_model,
-                                    bq_table_model)
+        gcs_component.stage_to_gcs(
+            mysql_component,
+            bq_component,
+            hive_table_model,
+            bq_table_model,
+            properties_reader.get("gcs_bucket_name"),
+        )
+        bq_component.load_gcs_to_bq(mysql_component, hive_table_model, bq_table_model)
         bq_component.update_bq_job_status(
-            mysql_component, gcs_component, hive_table_model,
-            bq_table_model, properties_reader.get('gcs_bucket_name'))
+            mysql_component,
+            gcs_component,
+            hive_table_model,
+            bq_table_model,
+            properties_reader.get("gcs_bucket_name"),
+        )
     except custom_exceptions.MySQLExecutionError as error:
         raise RuntimeError from error
 
@@ -382,28 +464,48 @@ def check_for_new_data_and_migrate(hive_table_model, bq_table_model):
         # Checks for new data in the Hive table.
 
         tracking_data = hive_component.check_inc_data(
-            mysql_component, bq_component, gcs_component, hive_table_model,
-            bq_table_model, PropertiesReader.get('gcs_bucket_name'))
-    except (custom_exceptions.HiveExecutionError,
-            custom_exceptions.MySQLExecutionError, TypeError) as error:
+            mysql_component,
+            bq_component,
+            gcs_component,
+            hive_table_model,
+            bq_table_model,
+            PropertiesReader.get("gcs_bucket_name"),
+        )
+    except (
+        custom_exceptions.HiveExecutionError,
+        custom_exceptions.MySQLExecutionError,
+        TypeError,
+    ) as error:
         raise RuntimeError from error
 
     if tracking_data:
         # Migrates data to BigQuery and updates job status in the tracking table.
         try:
             hive_component.migrate_data(
-                mysql_component, bq_component, gcs_component,
-                hive_table_model, bq_table_model,
-                PropertiesReader.get('gcs_bucket_name'), tracking_data)
-        except (custom_exceptions.HiveExecutionError,
-                custom_exceptions.MySQLExecutionError) as error:
+                mysql_component,
+                bq_component,
+                gcs_component,
+                hive_table_model,
+                bq_table_model,
+                PropertiesReader.get("gcs_bucket_name"),
+                tracking_data,
+            )
+        except (
+            custom_exceptions.HiveExecutionError,
+            custom_exceptions.MySQLExecutionError,
+        ) as error:
             raise RuntimeError from error
         try:
             bq_component.update_bq_job_status(
-                mysql_component, gcs_component, hive_table_model,
-                bq_table_model, PropertiesReader.get('gcs_bucket_name'))
+                mysql_component,
+                gcs_component,
+                hive_table_model,
+                bq_table_model,
+                PropertiesReader.get("gcs_bucket_name"),
+            )
         except custom_exceptions.MySQLExecutionError as error:
             raise RuntimeError from error
+
 
 @task
 def compare_row_counts_task(hive_table_model, bq_table_model):
@@ -412,10 +514,61 @@ def compare_row_counts_task(hive_table_model, bq_table_model):
     try:
         # Compares the number of rows in BigQuery and Hive tables and
         # creates metrics table if there is a match.
-        compare_row_counts(bq_component, hive_component, gcs_component,
-                           hive_table_model, bq_table_model)
+        compare_row_counts(
+            bq_component,
+            hive_component,
+            gcs_component,
+            hive_table_model,
+            bq_table_model,
+        )
     except custom_exceptions.HiveExecutionError as error:
         raise RuntimeError from error
+
+def first_or_second_run(table_models):
+    hive_table_model = table_models["hive"]
+    bq_table_model = table_models["bigquery"]
+    with case(is_migration_first_run(hive_table_model), True):
+        compare_row_counts_task(
+            hive_table_model,
+            bq_table_model,
+            upstream_tasks=[
+                check_for_new_data_and_migrate(
+                    hive_table_model,
+                    bq_table_model,
+                    upstream_tasks=[
+                        migration_first_run(
+                            hive_table_model,
+                            bq_table_model,
+                            PropertiesReader,
+                        )
+                    ],
+                )
+            ],
+        )
+
+    with case(is_migration_first_run(hive_table_model), False):
+        compare_row_counts_task(
+            hive_table_model,
+            bq_table_model,
+            upstream_tasks=[
+                check_for_new_data_and_migrate(
+                    hive_table_model,
+                    bq_table_model,
+                    upstream_tasks=[
+                        migration_second_run(
+                            hive_table_model,
+                            bq_table_model,
+                            PropertiesReader,
+                        )
+                    ],
+                )
+            ],
+        )
+
+
+@task
+def combine_models(hive_table_model, bq_table_model):
+    return {"hive": hive_table_model, "bigquery": bq_table_model}
 
 
 def main():
@@ -425,47 +578,85 @@ def main():
     user arguments and continues migration from the previous runs, if any.
     """
 
-    with Flow('hive-to-bigquery') as flow:
-        hive_table_model = get_hive_table(PropertiesReader, 
+    config = init_script.initialize_variables()
+    source = config["source"]
+    target = config["target"]
+    tracking_database = config["tracking_database"]
+
+    with Flow("hive-to-bigquery") as flow:
+        check_metadata_table_exists(tracking_database)
+        validate_resources()
+
+        hive_table_model = get_hive_table.map(source["tables"])
+
+        updated_hive_table_model = validate_tracking_table.map(hive_table_model)
+
+        bq_table_model = get_bigquery_table.map(
+            updated_hive_table_model, target["tables"]
+        )
+
+        updated_hive_table_model = validate_bigquery_write_mode.map(
+            updated_hive_table_model, bq_table_model
+        )
+
+        models = combine_models.map(updated_hive_table_model, bq_table_model)
+        #models = [(h, b) for h, b in zip(updated_hive_table_model,
+        #                                 bq_table_model)]
+        apply_map(first_or_second_run, models)
+    """
+        with case(is_migration_first_run.map(updated_hive_table_model), True):
+            compare_row_counts_task.map(
+                updated_hive_table_model,
+                bq_table_model,
                 upstream_tasks=[
-                    check_metadata_table_exists(PropertiesReader),
-                    validate_resources()])
+                    check_for_new_data_and_migrate(
+                        updated_hive_table_model,
+                        bq_table_model,
+                        upstream_tasks=[
+                            migration_first_run(
+                                updated_hive_table_model,
+                                bq_table_model,
+                                PropertiesReader,
+                            )
+                        ],
+                    )
+                ],
+            )
 
-        updated_hive_table_model = validate_tracking_table(hive_table_model)
-
-        bq_table_model = get_bigquery_table(updated_hive_table_model, PropertiesReader)
-
-        updated_hive_table_model, bq_table_model = validate_bigquery_write_mode(updated_hive_table_model, bq_table_model)
-
-        with case(is_migration_first_run(updated_hive_table_model), True):
-            compare_row_counts_task(updated_hive_table_model, bq_table_model,
-                    upstream_tasks=[
-                        check_for_new_data_and_migrate(updated_hive_table_model, bq_table_model,
-                                upstream_tasks=[
-                                    migration_first_run(updated_hive_table_model, bq_table_model, PropertiesReader)
-                                ])
-                        ])
-
-        with case(is_migration_first_run(updated_hive_table_model), False):
-            compare_row_counts_task(updated_hive_table_model, bq_table_model,
-                    upstream_tasks=[
-                        check_for_new_data_and_migrate(updated_hive_table_model, bq_table_model,
-                                upstream_tasks=[
-                                    migration_second_run(updated_hive_table_model, bq_table_model, PropertiesReader)
-                                ])
-                        ])
+        with case(is_migration_first_run.map(updated_hive_table_model), False):
+            compare_row_counts_task.map(
+                updated_hive_table_model,
+                bq_table_model,
+                upstream_tasks=[
+                    check_for_new_data_and_migrate(
+                        updated_hive_table_model,
+                        bq_table_model,
+                        upstream_tasks=[
+                            migration_second_run(
+                                updated_hive_table_model,
+                                bq_table_model,
+                                PropertiesReader,
+                            )
+                        ],
+                    )
+                ],
+            )
+            """
 
     try:
         flow.register(project_name="migration")
-
     except ConnectionError as ex:
-        logger.warning(f"Unable to register flow: {ex}")
+        logger.warning(
+            f"Unable to register flow: {ex}. This is not a critical error, continuing."
+        )
+
+    executor = DaskExecutor()
     flow.visualize(filename="flow")
-    flow_state = flow.run()
+    flow_state = flow.run(executor=executor)
     flow.visualize(filename="completed_flow", flow_state=flow_state)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     try:
         main()
     except RuntimeError as error:
