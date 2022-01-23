@@ -26,11 +26,11 @@ class DatabaseComponent:
     __metaclass__ = ABCMeta
 
     def __init__(self, **kwargs):
-        self.host = kwargs['host']
-        self.port = kwargs['port']
-        self.user = kwargs['user']
-        self.password = kwargs['password']
-        self.database = kwargs['database']
+        self.host = kwargs["host"]
+        self.port = kwargs["port"]
+        self.user = kwargs["user"]
+        self.password = kwargs["password"]
+        self.database = kwargs["database"]
 
         self.connection = self.get_connection()
 

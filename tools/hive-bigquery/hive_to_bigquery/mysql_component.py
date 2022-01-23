@@ -21,7 +21,7 @@ from hive_to_bigquery import custom_exceptions
 from hive_to_bigquery.database_component import DatabaseComponent
 from hive_to_bigquery.properties_reader import PropertiesReader
 
-logger = logging.getLogger('Hive2BigQuery')
+logger = logging.getLogger("Hive2BigQuery")
 
 
 class MySQLComponent(DatabaseComponent):
@@ -41,6 +41,7 @@ class MySQLComponent(DatabaseComponent):
         instance.
 
     """
+
     def __init__(self, **kwargs):
 
         logger.debug("Initializing Cloud SQL Component")
@@ -48,7 +49,8 @@ class MySQLComponent(DatabaseComponent):
 
     def __str__(self):
         return "MySQL - Host {0} username {1} database {2} port {3}".format(
-            self.host, self.user, self.database, self.port)
+            self.host, self.user, self.database, self.port
+        )
 
     def get_connection(self):
         """Connects to the MySQL database.
@@ -60,11 +62,13 @@ class MySQLComponent(DatabaseComponent):
         logger.debug("Getting MySQL Connection")
         try:
             logger.debug(self)
-            connection = pymysql.connect(host=self.host,
-                                         user=self.user,
-                                         password=self.password,
-                                         database=self.database,
-                                         port=self.port)
+            connection = pymysql.connect(
+                host=self.host,
+                user=self.user,
+                password=self.password,
+                database=self.database,
+                port=self.port,
+            )
             return connection
         except pymysql.err.DatabaseError as error:
             raise custom_exceptions.ConnectionError from error
@@ -89,12 +93,14 @@ class MySQLComponent(DatabaseComponent):
 
         try:
             cursor = self.get_cursor()
+            logger.debug(f"Executing query in transaction: {query}")
             cursor.execute(query)
             self.connection.commit()
         except pymysql.err.OperationalError as error:
             self.connection.rollback()
-            logger.error("Failed to commit transaction {} to Cloud SQL "
-                         "table".format(query))
+            logger.error(
+                "Failed to commit transaction {} to Cloud SQL " "table".format(query)
+            )
             raise custom_exceptions.MySQLExecutionError from error
 
     def execute_query(self, query):
@@ -109,11 +115,14 @@ class MySQLComponent(DatabaseComponent):
 
         cursor = self.get_cursor()
         try:
+            logger.debug(f"Executing query: {query}")
             cursor.execute(query)
             return cursor.fetchall()
+        except pymysql.err.ProgrammingError as error:
+            logger.error("Failed in querying Cloud SQL table - {}".format(query))
+            raise custom_exceptions.MySQLExecutionError from error
         except pymysql.err.OperationalError as error:
-            logger.error(
-                "Failed in querying Cloud SQL table - {}".format(query))
+            logger.error("Failed in querying Cloud SQL table - {}".format(query))
             raise custom_exceptions.MySQLExecutionError from error
 
     def check_table_exists(self, table_name):
@@ -127,6 +136,7 @@ class MySQLComponent(DatabaseComponent):
         for name in results:
             if table_name == name[0]:
                 return True
+        logger.debug(f"Did not find {table_name} in {results}.")
         return False
 
     def drop_table(self, table_name):
@@ -154,13 +164,11 @@ class MySQLComponent(DatabaseComponent):
         """
 
         if self.check_table_exists(table_name):
-            results = self.execute_query(
-                "SELECT COUNT(*) FROM {}".format(table_name))
+            results = self.execute_query("SELECT COUNT(*) FROM {}".format(table_name))
             n_rows = results[0][0]
             if n_rows == 0:
                 self.drop_table(table_name)
-                logger.info(
-                    "Dropped the empty tracking table {}".format(table_name))
+                logger.info("Dropped the empty tracking table {}".format(table_name))
 
     def get_tracking_table_data(self, hive_table_model):
         """Retrieves tracking table information.
@@ -175,15 +183,20 @@ class MySQLComponent(DatabaseComponent):
                 details.
         """
 
-        results = self.execute_query(
-            "SELECT tracking_table_name,inc_col_present,inc_col_name,"
-            "inc_col_type from {} WHERE hive_database='{}' AND "
-            "hive_table='{}' AND bq_table='{}'".format(
-                PropertiesReader.get('tracking_metatable_name'),
-                hive_table_model.db_name, hive_table_model.table_name,
-                hive_table_model.bq_table_name))
+        query = """\
+            SELECT tracking_table_name,inc_col_present,inc_col_name,
+            inc_col_type from {}
+            WHERE hive_database='{}' AND
+            hive_table='{}' AND bq_table='{}'
+            """.format(
+            PropertiesReader.get("tracking_metatable_name"),
+            hive_table_model.db_name,
+            hive_table_model.table_name,
+            hive_table_model.bq_table_name,
+        )
+        logger.debug(query)
+        results = self.execute_query(query)
         return results
-
 
     def update_hive_table_model_from_tracking_table(self, hive_table_model):
         """Update the hive table model from tracking table data, if the
@@ -201,13 +214,15 @@ class MySQLComponent(DatabaseComponent):
 
         tracking_table_results = self.get_tracking_table_data(hive_table_model)
         if tracking_table_results:
-            logger.debug("Tracking table %s found", hive_table_model.tracking_table_name)
+            logger.debug(
+                "Tracking table %s found", hive_table_model.tracking_table_name
+            )
             logger.debug("Setting hive_table_model.is_first_run = False")
             hive_table_model.is_first_run = False
             hive_table_model.tracking_table_name = tracking_table_results[0][0]
             hive_table_model.inc_col = tracking_table_results[0][2]
             hive_table_model.inc_col_type = tracking_table_results[0][3]
-            if hive_table_model.inc_col == 'None':
+            if hive_table_model.inc_col == "None":
                 hive_table_model.inc_col = None
                 hive_table_model.inc_col_type = None
         else:
@@ -221,23 +236,33 @@ class MySQLComponent(DatabaseComponent):
         """Updates the tracking metatable with details of the Hive table."""
 
         if mode == "INSERT":
-            query = "INSERT INTO {} (hive_database,hive_table,bq_table," \
-                    "tracking_table_name,inc_col_present,inc_col_name," \
-                    "inc_col_type) VALUES('{}','{}','{}','{}',{},'{}'," \
-                    "'{}')".format(
-                PropertiesReader.get('tracking_metatable_name'),
-                hive_table_model.db_name, hive_table_model.table_name,
-                hive_table_model.bq_table_name,
-                hive_table_model.tracking_table_name,
-                hive_table_model.is_inc_col_present, hive_table_model.inc_col,
-                hive_table_model.inc_col_type)
+            query = (
+                "INSERT INTO {} (hive_database,hive_table,bq_table,"
+                "tracking_table_name,inc_col_present,inc_col_name,"
+                "inc_col_type) VALUES('{}','{}','{}','{}',{},'{}',"
+                "'{}')".format(
+                    PropertiesReader.get("tracking_metatable_name"),
+                    hive_table_model.db_name,
+                    hive_table_model.table_name,
+                    hive_table_model.bq_table_name,
+                    hive_table_model.tracking_table_name,
+                    hive_table_model.is_inc_col_present,
+                    hive_table_model.inc_col,
+                    hive_table_model.inc_col_type,
+                )
+            )
 
         if mode == "DELETE":
-            query = "DELETE FROM {} WHERE hive_database='{}' AND " \
-                    "hive_table='{}' AND bq_table='{}'".format(
-                PropertiesReader.get('tracking_metatable_name'),
-                hive_table_model.db_name, hive_table_model.table_name,
-                hive_table_model.bq_table_name)
+            query = (
+                "DELETE FROM {} WHERE hive_database='{}' AND "
+                "hive_table='{}' AND bq_table='{}'".format(
+                    PropertiesReader.get("tracking_metatable_name"),
+                    hive_table_model.db_name,
+                    hive_table_model.table_name,
+                    hive_table_model.bq_table_name,
+                )
+            )
+        logger.debug(f"query: {query}")
         self.execute_query(query)
 
     def create_tracking_table(self, hive_table_model):
@@ -250,8 +275,11 @@ class MySQLComponent(DatabaseComponent):
 
         self.update_tracking_meta_table(hive_table_model, "INSERT")
 
-        logger.info("Tracking meta table {} is updated".format(
-            PropertiesReader.get('tracking_metatable_name')))
+        logger.info(
+            "Tracking meta table {} is updated".format(
+                PropertiesReader.get("tracking_metatable_name")
+            )
+        )
 
         if hive_table_model.is_inc_col_present:
 
@@ -274,7 +302,9 @@ class MySQLComponent(DatabaseComponent):
                 bq_job_retries TINYINT COMMENT 'Number of retries of BigQuery
                 load job',
                 bq_job_status VARCHAR(10) COMMENT 'Status of BigQuery load job'
-                )""".format(hive_table_model.tracking_table_name)
+                )""".format(
+                hive_table_model.tracking_table_name
+            )
         else:
             query = """CREATE TABLE IF NOT EXISTS {} (
                 table_name VARCHAR(255) COMMENT 'Hive stage table name',
@@ -289,8 +319,11 @@ class MySQLComponent(DatabaseComponent):
                 bq_job_retries TINYINT COMMENT 'Number of retries of BigQuery
                 load job',
                 bq_job_status VARCHAR(10) COMMENT 'Status of BigQuery load job'
-                )""".format(hive_table_model.tracking_table_name)
+                )""".format(
+                hive_table_model.tracking_table_name
+            )
 
         self.execute_query(query)
-        logger.info("Tracking table {} is created".format(
-            hive_table_model.tracking_table_name))
+        logger.info(
+            "Tracking table {} is created".format(hive_table_model.tracking_table_name)
+        )

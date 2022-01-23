@@ -29,7 +29,7 @@ from hive_to_bigquery import custom_exceptions
 from hive_to_bigquery.utilities import calculate_time
 from hive_to_bigquery.database_component import DatabaseComponent
 
-logger = logging.getLogger('Hive2BigQuery')
+logger = logging.getLogger("Hive2BigQuery")
 
 
 class HiveComponent(DatabaseComponent):
@@ -46,6 +46,7 @@ class HiveComponent(DatabaseComponent):
         user (str): Hive user name.
         connection (pyhive.hive.Connection): Hive connection object.
     """
+
     def __init__(self, **kwargs):
 
         logger.debug("Initializing Hive Component")
@@ -60,9 +61,9 @@ class HiveComponent(DatabaseComponent):
 
         logger.debug("Getting Hive Connection")
         try:
-            connection = hive.connect(host=self.host,
-                                      port=self.port,
-                                      username=self.user)
+            connection = hive.connect(
+                host=self.host, port=self.port, username=self.user
+            )
             return connection
         except TTransport.TTransportException as error:
             logger.error("Failed to establish Hive connection")
@@ -105,8 +106,7 @@ class HiveComponent(DatabaseComponent):
                 return results
 
         except exc.OperationalError as error:
-            logger.error("Hive Query {} execution failed".format(
-                str(query_cmds)))
+            logger.error("Hive Query {} execution failed".format(str(query_cmds)))
             raise custom_exceptions.HiveExecutionError from error
 
     def check_database_exists(self, database_name):
@@ -125,23 +125,30 @@ class HiveComponent(DatabaseComponent):
                 return True
         return False
 
-    def check_table_exists(self, database_name, table_name):
+    def check_tables_exist(self, database_name, table_names):
         """Checks whether the Hive table exists.
 
         Args:
             database_name (str): Hive database name.
-            table_name (str): Hive table name.
+            table_names List<str>: Hive table names.
 
         Returns:
-            boolean : True, if table exists else False.
+            boolean : True, if all tables exist.
         """
 
-        results = self.execute_query(
-            "SHOW TABLES FROM {}".format(database_name))
-        for name in results:
-            if table_name in name:
-                return True
-        return False
+        results = self.execute_query("SHOW TABLES FROM {}".format(database_name))
+        database_tables = set(map(lambda t: t[0], results))
+        table_name_set = set([t["name"] for t in table_names])
+        if table_name_set.issubset(database_tables):
+            return True
+        else:
+            logger.warning(
+                f"The tables requested do not all exist in database {database_name}. Missing tables: {table_name_set.difference(database_tables)}"
+            )
+            logger.info(
+                f"The folling tables not exist in database {database_name}: {database_tables}"
+            )
+            return False
 
     def get_table_location(self, database_name, table_name):
         """Returns the Hive table location.
@@ -156,10 +163,10 @@ class HiveComponent(DatabaseComponent):
 
         queries = [
             "set hive.ddl.output.format=json",
-            "desc extended {0}.{1}".format(database_name, table_name)
+            "desc extended {0}.{1}".format(database_name, table_name),
         ]
         results = self.execute_query(queries)
-        location = json.loads(results[0][0])['tableInfo']['sd']['location']
+        location = json.loads(results[0][0])["tableInfo"]["sd"]["location"]
         return location
 
     @staticmethod
@@ -174,8 +181,7 @@ class HiveComponent(DatabaseComponent):
         """
 
         file_name = "hdfs_files_{}.txt".format(uuid4())
-        status_code = os.system("hdfs dfs -ls {0} > {1}".format(
-            location, file_name))
+        status_code = os.system("hdfs dfs -ls {0} > {1}".format(location, file_name))
         if status_code:
             logger.error("hdfs command execution failed")
             raise custom_exceptions.HDFSCommandError
@@ -189,7 +195,7 @@ class HiveComponent(DatabaseComponent):
                 break
         for j in range(i + 1, len(content)):
             size = content[j].split()[4]
-            if size != '0':
+            if size != "0":
                 hdfs_files_list.append(content[j].split()[-1])
 
         return hdfs_files_list
@@ -209,27 +215,29 @@ class HiveComponent(DatabaseComponent):
         tracking_data = []
         queries = [
             "set hive.ddl.output.format=json",
-            "SHOW PARTITIONS {0}.{1}".format(database_name, table_name)
+            "SHOW PARTITIONS {0}.{1}".format(database_name, table_name),
         ]
         result_set = self.execute_query(queries)
-        results = json.loads(result_set[0][0])['partitions']
+        results = json.loads(result_set[0][0])["partitions"]
 
         for item in results:
             # Form the WHERE clause by joining the partition column names and
             # their values
-            clause = 'WHERE ' + ' AND '.join(
-                partition['columnName'] + '=' + '"' +
-                partition['columnValue'] + '"' for partition in item['values'])
-            tracking_data.append({
-                'table_name':
-                'stage__{}__{}'.format(table_name.lower(),
-                                       str(uuid4()).replace("-", "_")),
-                'clause':
-                clause
-            })
+            clause = "WHERE " + " AND ".join(
+                partition["columnName"] + "=" + '"' + partition["columnValue"] + '"'
+                for partition in item["values"]
+            )
+            tracking_data.append(
+                {
+                    "table_name": "stage__{}__{}".format(
+                        table_name.lower(), str(uuid4()).replace("-", "_")
+                    ),
+                    "clause": clause,
+                }
+            )
         return tracking_data
 
-    def get_hive_table_row_count(self, hive_table_model, clause=''):
+    def get_hive_table_row_count(self, hive_table_model, clause=""):
         """Queries Hive table to get number of rows.
 
         Args:
@@ -242,7 +250,8 @@ class HiveComponent(DatabaseComponent):
         """
 
         query = "SELECT COUNT(*) FROM {0}.{1} {2}".format(
-            hive_table_model.db_name, hive_table_model.table_name, clause)
+            hive_table_model.db_name, hive_table_model.table_name, clause
+        )
         results = self.execute_query(query)
         n_rows = results[0][0]
         return n_rows
@@ -293,18 +302,24 @@ class HiveComponent(DatabaseComponent):
             if hive_table_model.inc_col in hive_table_model.timestamp_type_col:
                 logger.debug(
                     "Fetching minimum and maximum values of the timestamp "
-                    "incremental column...")
+                    "incremental column..."
+                )
                 results = self.execute_query(
                     "SELECT MIN({0}),MAX({0}) FROM {1}.{2}".format(
-                        hive_table_model.inc_col, hive_table_model.db_name,
-                        hive_table_model.table_name))
+                        hive_table_model.inc_col,
+                        hive_table_model.db_name,
+                        hive_table_model.table_name,
+                    )
+                )
                 col_min, col_max = results[0]
                 # Sets incremental attributes of hive_table_model.
-                hive_table_model.inc_col_type = 'ts'
+                hive_table_model.inc_col_type = "ts"
 
                 logger.info(
                     "Incremental column {} found. Range - {} - {}".format(
-                        hive_table_model.inc_col, col_min, col_max))
+                        hive_table_model.inc_col, col_min, col_max
+                    )
+                )
 
             # Validates the incremental column of int data type by comparing
             # the number of distinct values and number of rows.
@@ -313,52 +328,61 @@ class HiveComponent(DatabaseComponent):
                 logger.debug("Counting the total number of rows...")
                 results = self.execute_query(
                     "SELECT COUNT(*) FROM {}.{}".format(
-                        hive_table_model.db_name, hive_table_model.table_name))
+                        hive_table_model.db_name, hive_table_model.table_name
+                    )
+                )
                 n_rows = results[0][0]
                 logger.debug("Number of rows in the table: %d", n_rows)
 
-                logger.debug(
-                    "Fetching maximum value of the incremental column...")
-                query = "SELECT COUNT(DISTINCT({0})),MIN({0}),MAX({0}) " \
-                        "FROM {1}.{2}".format(
-                            hive_table_model.inc_col, hive_table_model.db_name,
-                            hive_table_model.table_name)
+                logger.debug("Fetching maximum value of the incremental column...")
+                query = (
+                    "SELECT COUNT(DISTINCT({0})),MIN({0}),MAX({0}) "
+                    "FROM {1}.{2}".format(
+                        hive_table_model.inc_col,
+                        hive_table_model.db_name,
+                        hive_table_model.table_name,
+                    )
+                )
                 results = self.execute_query(query)
 
                 distinct_col_values, col_min, col_max = results[0]
                 # Checks if number of distinct values matches the number of rows.
-                if n_rows == distinct_col_values and (1 + col_max -
-                                                      col_min == n_rows):
+                if n_rows == distinct_col_values and (1 + col_max - col_min == n_rows):
                     # Sets incremental attributes of hive_table_model.
-                    hive_table_model.inc_col_type = 'int'
+                    hive_table_model.inc_col_type = "int"
 
                     logger.info(
                         "Incremental column {} valid. Range - {} - {}".format(
-                            hive_table_model.inc_col, col_min, col_max))
+                            hive_table_model.inc_col, col_min, col_max
+                        )
+                    )
                 else:
                     logger.error(
                         "Incremental column {0} not valid. Range - {1} - "
                         "{2}\nTry another incremental column or without "
                         "providing incremental column".format(
-                            hive_table_model.inc_col, col_min, col_max))
+                            hive_table_model.inc_col, col_min, col_max
+                        )
+                    )
                     raise custom_exceptions.IncrementalColumnError
             else:
-                logger.error("Given incremental column is not present.")
+                logger.error(f"Given incremental column '{hive_table_model.inc_col}' is not present in '{hive_table_model.table_name}', or is not a compatible type.")
                 raise custom_exceptions.IncrementalColumnError
 
         if hive_table_model.is_inc_col_present:
-            tracking_data.append({
-                'table_name': hive_table_model.staging_table_name,
-                'id': 1,
-                'inc_col_min': col_min,
-                'inc_col_max': col_max,
-                'clause': ""
-            })
+            tracking_data.append(
+                {
+                    "table_name": hive_table_model.staging_table_name,
+                    "id": 1,
+                    "inc_col_min": col_min,
+                    "inc_col_max": col_max,
+                    "clause": "",
+                }
+            )
         else:
-            tracking_data.append({
-                'table_name': hive_table_model.staging_table_name,
-                'clause': ""
-            })
+            tracking_data.append(
+                {"table_name": hive_table_model.staging_table_name, "clause": ""}
+            )
 
         return tracking_data
 
@@ -380,12 +404,13 @@ class HiveComponent(DatabaseComponent):
         """
 
         # Information about partitions.
-        tracking_data = self.list_partitions(hive_table_model.db_name,
-                                             hive_table_model.table_name)
+        tracking_data = self.list_partitions(
+            hive_table_model.db_name, hive_table_model.table_name
+        )
 
         for item in tracking_data:
             # Id is set to 1 since the partition is migrated for the first time.
-            item['id'] = 1
+            item["id"] = 1
         if hive_table_model.inc_col is not None:
             logger.info("Validating given incremental column...")
             # If the provided incremental column is of timestamp/date type,
@@ -393,82 +418,102 @@ class HiveComponent(DatabaseComponent):
             if hive_table_model.inc_col in hive_table_model.timestamp_type_col:
                 logger.debug(
                     "Fetching minimum and maximum values of the timestamp "
-                    "incremental column...")
+                    "incremental column..."
+                )
                 for item in tracking_data:
-                    clause = item['clause']
+                    clause = item["clause"]
                     results = self.execute_query(
                         "SELECT MIN({0}),MAX({0}) FROM {1}.{2} {3}".format(
-                            hive_table_model.inc_col, hive_table_model.db_name,
-                            hive_table_model.table_name, clause))
+                            hive_table_model.inc_col,
+                            hive_table_model.db_name,
+                            hive_table_model.table_name,
+                            clause,
+                        )
+                    )
                     col_min, col_max = results[0]
-                    item['inc_col_min'] = col_min
-                    item['inc_col_max'] = col_max
+                    item["inc_col_min"] = col_min
+                    item["inc_col_max"] = col_max
                     # Setting incremental attributes of hive_table_model.
-                    hive_table_model.inc_col_type = 'ts'
+                    hive_table_model.inc_col_type = "ts"
                     logger.info(
                         "Incremental column {} found in table {}. Range - {} "
-                        "- {}".format(hive_table_model.inc_col, clause,
-                                      col_min, col_max))
+                        "- {}".format(
+                            hive_table_model.inc_col, clause, col_min, col_max
+                        )
+                    )
             # Validates the incremental column of int data type by comparing
             # the number of distinct values and number of rows.
             elif hive_table_model.inc_col in hive_table_model.int_type_col:
                 # Sets incremental attributes of hive_table_model.
-                hive_table_model.inc_col_type = 'int'
+                hive_table_model.inc_col_type = "int"
                 n_rows = {}
                 for data in tracking_data:
-                    clause = data['clause']
+                    clause = data["clause"]
                     logger.debug("Counting the number of rows %s ...", clause)
                     results = self.execute_query(
                         "SELECT COUNT(*) FROM {0}.{1} {2}".format(
                             hive_table_model.db_name,
-                            hive_table_model.table_name, clause))
+                            hive_table_model.table_name,
+                            clause,
+                        )
+                    )
                     n_rows[clause] = results[0][0]
-                    logger.debug("Number of rows in the table %s : %s", clause,
-                                 n_rows[clause])
-                for item in tracking_data:
-                    clause = item['clause']
                     logger.debug(
-                        "Fetching maximum value of the incremental column %s "
-                        "...", clause)
-                    query = "SELECT COUNT(DISTINCT({0})),MIN({0}),MAX({0}) " \
-                            "FROM {1}.{2} {3}".format(
-                                hive_table_model.inc_col,
-                                hive_table_model.db_name,
-                                hive_table_model.table_name, clause)
+                        "Number of rows in the table %s : %s", clause, n_rows[clause]
+                    )
+                for item in tracking_data:
+                    clause = item["clause"]
+                    logger.debug(
+                        "Fetching maximum value of the incremental column %s " "...",
+                        clause,
+                    )
+                    query = (
+                        "SELECT COUNT(DISTINCT({0})),MIN({0}),MAX({0}) "
+                        "FROM {1}.{2} {3}".format(
+                            hive_table_model.inc_col,
+                            hive_table_model.db_name,
+                            hive_table_model.table_name,
+                            clause,
+                        )
+                    )
                     results = self.execute_query(query)
                     distinct_col_values, col_min, col_max = results[0]
                     # Checks if the number of distinct values matches the
                     # number of rows for every partition.
                     if n_rows[clause] == distinct_col_values and (
-                            1 + col_max - col_min == n_rows[clause]):
+                        1 + col_max - col_min == n_rows[clause]
+                    ):
                         # Sets incremental attributes of hive_table_model.
-                        item['inc_col_min'] = col_min
-                        item['inc_col_max'] = col_max
+                        item["inc_col_min"] = col_min
+                        item["inc_col_max"] = col_max
                         logger.debug(
                             "Incremental column %s found in table %s. Range - "
-                            "%s - %s", hive_table_model.inc_col, clause,
-                            col_min, col_max)
+                            "%s - %s",
+                            hive_table_model.inc_col,
+                            clause,
+                            col_min,
+                            col_max,
+                        )
 
                     else:
                         logger.error(
                             "Incremental column {} not valid in partition {}. "
                             "Range - {} - {}\nTry another incremental column "
                             "or without providing incremental column".format(
-                                hive_table_model.inc_col, clause, col_min,
-                                col_max))
+                                hive_table_model.inc_col, clause, col_min, col_max
+                            )
+                        )
                         raise custom_exceptions.IncrementalColumnError
                 if hive_table_model.is_inc_col_present:
-                    logger.info("Incremental column {} found".format(
-                        hive_table_model.inc_col))
+                    logger.info(
+                        "Incremental column {} found".format(hive_table_model.inc_col)
+                    )
             else:
                 logger.error("Given incremental column is not present.")
                 raise custom_exceptions.IncrementalColumnError
         return tracking_data
 
-    def create_and_load_stage_table(self,
-                                    hive_table_model,
-                                    table_name,
-                                    clause=''):
+    def create_and_load_stage_table(self, hive_table_model, table_name, clause=""):
         """Creates Hive staging table and inserts data into it from the
         source table.
 
@@ -483,7 +528,8 @@ class HiveComponent(DatabaseComponent):
         logger.info("Staging for table " + table_name + "...")
         # Replaces TABLE_NAME_HERE place holder with staging table name.
         create_ddl_statement = hive_table_model.create_statement.replace(
-            "TABLE_NAME_HERE", table_name)
+            "TABLE_NAME_HERE", table_name
+        )
 
         # Creates staging table.
         self.execute_query(create_ddl_statement)
@@ -492,19 +538,30 @@ class HiveComponent(DatabaseComponent):
 
         # Inserts data into staging table.
         query = "INSERT OVERWRITE TABLE {} SELECT * FROM {}.{} {}".format(
-            table_name, hive_table_model.db_name, hive_table_model.table_name,
-            clause)
+            table_name, hive_table_model.db_name, hive_table_model.table_name, clause
+        )
         logger.info(query)
         self.execute_query(query)
 
         end = time.time()
         time_hive_stage = calculate_time(start, end)
-        logger.debug("Loaded data from %s into %s - Time taken - %s",
-                     hive_table_model.table_name, table_name, time_hive_stage)
+        logger.debug(
+            "Loaded data from %s into %s - Time taken - %s",
+            hive_table_model.table_name,
+            table_name,
+            time_hive_stage,
+        )
 
-    def migrate_data(self, mysql_component, bq_component, gcs_component,
-                     hive_table_model, bq_table_model, gcs_bucket_name,
-                     table_data):
+    def migrate_data(
+        self,
+        mysql_component,
+        bq_component,
+        gcs_component,
+        hive_table_model,
+        bq_table_model,
+        gcs_bucket_name,
+        table_data,
+    ):
         """Invokes the function to migrate data based on whether the Hive
         table is partitioned.
 
@@ -526,20 +583,36 @@ class HiveComponent(DatabaseComponent):
         logger.debug("Populating tracking table..")
 
         if hive_table_model.is_partitioned is False:
-            self.migrate_non_partition_table(mysql_component, bq_component,
-                                             gcs_component, hive_table_model,
-                                             bq_table_model, gcs_bucket_name,
-                                             table_data)
+            self.migrate_non_partition_table(
+                mysql_component,
+                bq_component,
+                gcs_component,
+                hive_table_model,
+                bq_table_model,
+                gcs_bucket_name,
+                table_data,
+            )
         else:
-            self.migrate_partition_table(mysql_component, bq_component,
-                                         gcs_component, hive_table_model,
-                                         bq_table_model, gcs_bucket_name,
-                                         table_data)
+            self.migrate_partition_table(
+                mysql_component,
+                bq_component,
+                gcs_component,
+                hive_table_model,
+                bq_table_model,
+                gcs_bucket_name,
+                table_data,
+            )
 
-    def migrate_non_partition_table(self, mysql_component, bq_component,
-                                    gcs_component, hive_table_model,
-                                    bq_table_model, gcs_bucket_name,
-                                    table_data):
+    def migrate_non_partition_table(
+        self,
+        mysql_component,
+        bq_component,
+        gcs_component,
+        hive_table_model,
+        bq_table_model,
+        gcs_bucket_name,
+        table_data,
+    ):
         """Migrates Hive data in case of a non-partitioned table.
 
         Invokes the function to create and load stage table, gets the staging
@@ -562,66 +635,95 @@ class HiveComponent(DatabaseComponent):
             table_data (List): Information of data to migrate.
         """
 
-        table_name = table_data[0]['table_name']
-        clause = table_data[0]['clause']
+        table_name = table_data[0]["table_name"]
+        clause = table_data[0]["clause"]
         insert_clause = clause
         if hive_table_model.is_inc_col_present:
-            identifier = int(table_data[0]['id'])
-            inc_col_min = table_data[0]['inc_col_min']
-            inc_col_max = table_data[0]['inc_col_max']
+            identifier = int(table_data[0]["id"])
+            inc_col_min = table_data[0]["inc_col_min"]
+            inc_col_max = table_data[0]["inc_col_max"]
             if identifier == 1:
                 # Includes lower bound value in the stage table.
                 insert_clause = "where {0}>='{1}' and {0}<='{2}'".format(
-                    hive_table_model.inc_col, inc_col_min, inc_col_max)
+                    hive_table_model.inc_col, inc_col_min, inc_col_max
+                )
             else:
                 insert_clause = "where {0}>'{1}' and {0}<='{2}'".format(
-                    hive_table_model.inc_col, inc_col_min, inc_col_max)
+                    hive_table_model.inc_col, inc_col_min, inc_col_max
+                )
 
         # Creating staging table and loading data.
         if hive_table_model.is_table_type_supported is False:
-            self.create_and_load_stage_table(hive_table_model, table_name,
-                                             insert_clause)
+            self.create_and_load_stage_table(
+                hive_table_model, table_name, insert_clause
+            )
             source_location = self.get_table_location("default", table_name)
         else:
-            if hive_table_model.is_inc_col_present and \
-                    hive_table_model.is_first_run is False:
-                self.create_and_load_stage_table(hive_table_model, table_name,
-                                                 insert_clause)
-                source_location = self.get_table_location(
-                    "default", table_name)
+            if (
+                hive_table_model.is_inc_col_present
+                and hive_table_model.is_first_run is False
+            ):
+                self.create_and_load_stage_table(
+                    hive_table_model, table_name, insert_clause
+                )
+                source_location = self.get_table_location("default", table_name)
             else:
                 source_location = self.get_table_location(
-                    hive_table_model.db_name, hive_table_model.table_name)
+                    hive_table_model.db_name, hive_table_model.table_name
+                )
         # Lists underlying HDFS files.
         hdfs_files_list = self.list_hdfs_files(source_location)
         logger.info("Updating file paths in the tracking table..")
         for file_path in hdfs_files_list:
             if hive_table_model.is_inc_col_present:
-                query = "INSERT INTO {0} (id,table_name,inc_col_min," \
-                        "inc_col_max,clause,file_path,gcs_copy_status," \
-                        "bq_job_id,bq_job_retries,bq_job_status) VALUES({1}," \
-                        "'{2}','{3}','{4}','{5}','{6}','TODO','TODO',0," \
-                        "'TODO')".format(
-                            hive_table_model.tracking_table_name, identifier,
-                            table_name, inc_col_min, inc_col_max, clause,
-                            file_path)
+                query = (
+                    "INSERT INTO {0} (id,table_name,inc_col_min,"
+                    "inc_col_max,clause,file_path,gcs_copy_status,"
+                    "bq_job_id,bq_job_retries,bq_job_status) VALUES({1},"
+                    "'{2}','{3}','{4}','{5}','{6}','TODO','TODO',0,"
+                    "'TODO')".format(
+                        hive_table_model.tracking_table_name,
+                        identifier,
+                        table_name,
+                        inc_col_min,
+                        inc_col_max,
+                        clause,
+                        file_path,
+                    )
+                )
             else:
-                query = "INSERT INTO {0} (table_name,clause,file_path," \
-                        "gcs_copy_status,bq_job_id,bq_job_retries," \
-                        "bq_job_status) VALUES('{1}','{2}','{3}','TODO'," \
-                        "'TODO',0,'TODO')".format(
-                            hive_table_model.tracking_table_name, table_name,
-                            clause, file_path)
+                query = (
+                    "INSERT INTO {0} (table_name,clause,file_path,"
+                    "gcs_copy_status,bq_job_id,bq_job_retries,"
+                    "bq_job_status) VALUES('{1}','{2}','{3}','TODO',"
+                    "'TODO',0,'TODO')".format(
+                        hive_table_model.tracking_table_name,
+                        table_name,
+                        clause,
+                        file_path,
+                    )
+                )
             # Commits information about the staging files.
             mysql_component.execute_transaction(query)
         # Copies files from HDFS to GCS.
-        gcs_component.stage_to_gcs(mysql_component, bq_component,
-                                   hive_table_model, bq_table_model,
-                                   gcs_bucket_name)
+        gcs_component.stage_to_gcs(
+            mysql_component,
+            bq_component,
+            hive_table_model,
+            bq_table_model,
+            gcs_bucket_name,
+        )
 
-    def migrate_partition_table(self, mysql_component, bq_component,
-                                gcs_component, hive_table_model,
-                                bq_table_model, gcs_bucket_name, table_data):
+    def migrate_partition_table(
+        self,
+        mysql_component,
+        bq_component,
+        gcs_component,
+        hive_table_model,
+        bq_table_model,
+        gcs_bucket_name,
+        table_data,
+    ):
         """Migrates Hive data in case of a partition table.
 
         Invokes the function to create and load stage table, gets the staging
@@ -646,85 +748,113 @@ class HiveComponent(DatabaseComponent):
 
         for data in table_data:
             if hive_table_model.is_inc_col_present:
-                insert_query = "INSERT INTO {0} (id,table_name,inc_col_min," \
-                               "inc_col_max,clause,file_path) VALUES('{1}'," \
-                               "'{2}','{3}','{4}','{5}','TODO')".format(
-                                   hive_table_model.tracking_table_name,
-                                   data['id'], data['table_name'],
-                                   data['inc_col_min'], data['inc_col_max'],
-                                   data['clause'])
-                select_query = "SELECT id,table_name,inc_col_min,inc_col_max," \
-                               "clause FROM {} WHERE file_path='TODO'".format(
-                                   hive_table_model.tracking_table_name)
+                insert_query = (
+                    "INSERT INTO {0} (id,table_name,inc_col_min,"
+                    "inc_col_max,clause,file_path) VALUES('{1}',"
+                    "'{2}','{3}','{4}','{5}','TODO')".format(
+                        hive_table_model.tracking_table_name,
+                        data["id"],
+                        data["table_name"],
+                        data["inc_col_min"],
+                        data["inc_col_max"],
+                        data["clause"],
+                    )
+                )
+                select_query = (
+                    "SELECT id,table_name,inc_col_min,inc_col_max,"
+                    "clause FROM {} WHERE file_path='TODO'".format(
+                        hive_table_model.tracking_table_name
+                    )
+                )
             else:
-                insert_query = "INSERT INTO {0} (table_name,clause," \
-                               "file_path)VALUES('{1}','{2}','TODO')".format(
-                                   hive_table_model.tracking_table_name,
-                                   data['table_name'], data['clause'])
-                select_query = "SELECT table_name,clause FROM {} WHERE " \
-                               "file_path='TODO'".format(
-                                   hive_table_model.tracking_table_name)
+                insert_query = (
+                    "INSERT INTO {0} (table_name,clause,"
+                    "file_path)VALUES('{1}','{2}','TODO')".format(
+                        hive_table_model.tracking_table_name,
+                        data["table_name"],
+                        data["clause"],
+                    )
+                )
+                select_query = (
+                    "SELECT table_name,clause FROM {} WHERE "
+                    "file_path='TODO'".format(hive_table_model.tracking_table_name)
+                )
             # Inserts a row in the tracking table for every partition.
             mysql_component.execute_transaction(insert_query)
             results = mysql_component.execute_query(select_query)
 
             for row in results:
                 if hive_table_model.is_inc_col_present:
-                    identifier, table_name, inc_col_min, inc_col_max, clause \
-                        = row
+                    identifier, table_name, inc_col_min, inc_col_max, clause = row
                     if identifier == 1:
-                        insert_clause = "{0} and {1}>='{2}' and " \
-                                        "{1}<='{3}'".format(
-                                            clause, hive_table_model.inc_col,
-                                            inc_col_min, inc_col_max)
+                        insert_clause = "{0} and {1}>='{2}' and " "{1}<='{3}'".format(
+                            clause, hive_table_model.inc_col, inc_col_min, inc_col_max
+                        )
                     else:
-                        insert_clause = "{0} and {1}>'{2}' and " \
-                                        "{1}<='{3}'".format(
-                                            clause, hive_table_model.inc_col,
-                                            inc_col_min, inc_col_max)
+                        insert_clause = "{0} and {1}>'{2}' and " "{1}<='{3}'".format(
+                            clause, hive_table_model.inc_col, inc_col_min, inc_col_max
+                        )
                 else:
                     table_name, clause = row
                     insert_clause = clause
                 # Creates staging table and inserting data.
-                self.create_and_load_stage_table(hive_table_model, table_name,
-                                                 insert_clause)
+                self.create_and_load_stage_table(
+                    hive_table_model, table_name, insert_clause
+                )
                 # Gets table location
-                source_location = self.get_table_location(
-                    "default", table_name)
+                source_location = self.get_table_location("default", table_name)
                 # Lists underlying HDFS files.
                 hdfs_files_list = self.list_hdfs_files(source_location)
 
                 logger.info("Updating file paths in the tracking table..")
                 for file_path in hdfs_files_list:
                     if hive_table_model.is_inc_col_present:
-                        query = "INSERT INTO {0} (id,table_name,inc_col_min," \
-                                "inc_col_max,clause,file_path," \
-                                "gcs_copy_status,bq_job_id,bq_job_retries," \
-                                "bq_job_status) VALUES('{1}','{2}','{3}'," \
-                                "'{4}','{5}','{6}','TODO','TODO',0," \
-                                "'TODO')".format(
-                                    hive_table_model.tracking_table_name,
-                                    identifier, table_name, inc_col_min,
-                                    inc_col_max, clause, file_path)
+                        query = (
+                            "INSERT INTO {0} (id,table_name,inc_col_min,"
+                            "inc_col_max,clause,file_path,"
+                            "gcs_copy_status,bq_job_id,bq_job_retries,"
+                            "bq_job_status) VALUES('{1}','{2}','{3}',"
+                            "'{4}','{5}','{6}','TODO','TODO',0,"
+                            "'TODO')".format(
+                                hive_table_model.tracking_table_name,
+                                identifier,
+                                table_name,
+                                inc_col_min,
+                                inc_col_max,
+                                clause,
+                                file_path,
+                            )
+                        )
                     else:
-                        query = "INSERT INTO {0} (table_name,clause," \
-                                "file_path,gcs_copy_status,bq_job_id," \
-                                "bq_job_retries,bq_job_status) VALUES('{1}'," \
-                                "'{2}','{3}','TODO','TODO',0,'TODO')".format(
-                                    hive_table_model.tracking_table_name,
-                                    table_name, clause, file_path)
+                        query = (
+                            "INSERT INTO {0} (table_name,clause,"
+                            "file_path,gcs_copy_status,bq_job_id,"
+                            "bq_job_retries,bq_job_status) VALUES('{1}',"
+                            "'{2}','{3}','TODO','TODO',0,'TODO')".format(
+                                hive_table_model.tracking_table_name,
+                                table_name,
+                                clause,
+                                file_path,
+                            )
+                        )
                     # Commits information about the staging files.
                     mysql_component.execute_transaction(query)
 
-                query = "DELETE FROM {0} WHERE table_name='{1}' AND clause " \
-                        "='{2}' AND file_path='TODO'".format(
-                            hive_table_model.tracking_table_name,
-                            table_name, clause)
+                query = (
+                    "DELETE FROM {0} WHERE table_name='{1}' AND clause "
+                    "='{2}' AND file_path='TODO'".format(
+                        hive_table_model.tracking_table_name, table_name, clause
+                    )
+                )
                 mysql_component.execute_transaction(query)
                 # Copies files from HDFS to GCS.
-                gcs_component.stage_to_gcs(mysql_component, bq_component,
-                                           hive_table_model, bq_table_model,
-                                           gcs_bucket_name)
+                gcs_component.stage_to_gcs(
+                    mysql_component,
+                    bq_component,
+                    hive_table_model,
+                    bq_table_model,
+                    gcs_bucket_name,
+                )
 
     @staticmethod
     def compare_max_values(hive_table_model, old_max, new_max):
@@ -768,8 +898,15 @@ class HiveComponent(DatabaseComponent):
 
         return False
 
-    def check_inc_data(self, mysql_component, bq_component, gcs_component,
-                       hive_table_model, bq_table_model, gcs_bucket_name):
+    def check_inc_data(
+        self,
+        mysql_component,
+        bq_component,
+        gcs_component,
+        hive_table_model,
+        bq_table_model,
+        gcs_bucket_name,
+    ):
         """Invokes the functions to check for incremental data.
 
         Args:
@@ -793,17 +930,29 @@ class HiveComponent(DatabaseComponent):
         logger.info("Checking for any new data...")
         if hive_table_model.is_partitioned is False:
             tracking_data = self.check_inc_non_partition_table(
-                mysql_component, bq_component, gcs_component, hive_table_model,
-                bq_table_model, gcs_bucket_name)
+                mysql_component,
+                bq_component,
+                gcs_component,
+                hive_table_model,
+                bq_table_model,
+                gcs_bucket_name,
+            )
         else:
             tracking_data = self.check_inc_partition_table(
-                mysql_component, hive_table_model)
+                mysql_component, hive_table_model
+            )
 
         return tracking_data
 
-    def check_inc_non_partition_table(self, mysql_component, bq_component,
-                                      gcs_component, hive_table_model,
-                                      bq_table_model, gcs_bucket_name):
+    def check_inc_non_partition_table(
+        self,
+        mysql_component,
+        bq_component,
+        gcs_component,
+        hive_table_model,
+        bq_table_model,
+        gcs_bucket_name,
+    ):
         """Checks for incremental data in case of a non-partitioned table.
 
         If there is an incremental column, the function queries the Hive
@@ -838,48 +987,66 @@ class HiveComponent(DatabaseComponent):
             # compare these values to decide whether there is new data.
             results = mysql_component.execute_query(
                 "SELECT MAX(id),MAX(inc_col_max) FROM {}".format(
-                    hive_table_model.tracking_table_name))
+                    hive_table_model.tracking_table_name
+                )
+            )
             identifier, old_data_max = results[0]
 
-            results = self.execute_query("SELECT MAX({0}) FROM {1}.{2}".format(
-                hive_table_model.inc_col, hive_table_model.db_name,
-                hive_table_model.table_name))
+            results = self.execute_query(
+                "SELECT MAX({0}) FROM {1}.{2}".format(
+                    hive_table_model.inc_col,
+                    hive_table_model.db_name,
+                    hive_table_model.table_name,
+                )
+            )
             new_data_max = results[0][0]
 
-            new_data_exists = self.compare_max_values(hive_table_model,
-                                                      old_data_max,
-                                                      new_data_max)
+            new_data_exists = self.compare_max_values(
+                hive_table_model, old_data_max, new_data_max
+            )
             if new_data_exists:
                 logger.info("New data found in source table")
                 logger.debug(
                     "Previously incremental column %s maximum value "
-                    "%s.Current maximum value %s", hive_table_model.inc_col,
-                    old_data_max, new_data_max)
-                tracking_data.append({
-                    'table_name': hive_table_model.staging_table_name,
-                    'id': identifier + 1,
-                    'inc_col_min': old_data_max,
-                    'inc_col_max': new_data_max,
-                    'clause': ""
-                })
+                    "%s.Current maximum value %s",
+                    hive_table_model.inc_col,
+                    old_data_max,
+                    new_data_max,
+                )
+                tracking_data.append(
+                    {
+                        "table_name": hive_table_model.staging_table_name,
+                        "id": identifier + 1,
+                        "inc_col_min": old_data_max,
+                        "inc_col_max": new_data_max,
+                        "clause": "",
+                    }
+                )
             else:
                 logger.info("No new data found")
-        elif not hive_table_model.is_inc_col_present and \
-                hive_table_model.is_table_type_supported is False:
+        elif (
+            not hive_table_model.is_inc_col_present
+            and hive_table_model.is_table_type_supported is False
+        ):
             logger.info(
                 "cannot check for new data in case of Non partitioned - No "
-                "Incremental column - Text format table")
-        elif not hive_table_model.is_inc_col_present and \
-                hive_table_model.is_table_type_supported is True:
+                "Incremental column - Text format table"
+            )
+        elif (
+            not hive_table_model.is_inc_col_present
+            and hive_table_model.is_table_type_supported is True
+        ):
             # Lists HDFS files and compares them with tracking table and
             # migrates files which aren't present in the tracking table.
             results = mysql_component.execute_query(
-                "SELECT file_path FROM {}".format(
-                    hive_table_model.tracking_table_name))
+                "SELECT file_path FROM {}".format(hive_table_model.tracking_table_name)
+            )
             old_file_paths = [row[0] for row in results]
             new_file_paths = self.list_hdfs_files(
-                self.get_table_location(hive_table_model.db_name,
-                                        hive_table_model.table_name))
+                self.get_table_location(
+                    hive_table_model.db_name, hive_table_model.table_name
+                )
+            )
 
             new_data_exists = False
             for file_path in new_file_paths:
@@ -887,19 +1054,27 @@ class HiveComponent(DatabaseComponent):
                     # Updates the tracking table with new file paths.
                     new_data_exists = True
                     logger.debug("Found new data at file path %s", file_path)
-                    query = "INSERT INTO {0} (table_name,file_path," \
-                            "gcs_copy_status,bq_job_id,bq_job_retries," \
-                            "bq_job_status) VALUES('{1}','{2}','TODO','TODO'," \
-                            "0,'TODO')".format(
-                                hive_table_model.tracking_table_name,
-                                hive_table_model.table_name, file_path)
+                    query = (
+                        "INSERT INTO {0} (table_name,file_path,"
+                        "gcs_copy_status,bq_job_id,bq_job_retries,"
+                        "bq_job_status) VALUES('{1}','{2}','TODO','TODO',"
+                        "0,'TODO')".format(
+                            hive_table_model.tracking_table_name,
+                            hive_table_model.table_name,
+                            file_path,
+                        )
+                    )
                     mysql_component.execute_transaction(query)
             # Copies the new files to GCS.
             if new_data_exists:
                 logger.info("New files found in source table")
-                gcs_component.stage_to_gcs(mysql_component, bq_component,
-                                           hive_table_model, bq_table_model,
-                                           gcs_bucket_name)
+                gcs_component.stage_to_gcs(
+                    mysql_component,
+                    bq_component,
+                    hive_table_model,
+                    bq_table_model,
+                    gcs_bucket_name,
+                )
             else:
                 logger.info("No new data found")
 
@@ -930,23 +1105,29 @@ class HiveComponent(DatabaseComponent):
         logger.info("Checking for new partitions...")
         results = mysql_component.execute_query(
             "SELECT DISTINCT(clause) FROM {}".format(
-                hive_table_model.tracking_table_name))
+                hive_table_model.tracking_table_name
+            )
+        )
         old_partitions_list = [row[0] for row in results]
 
-        partitions_list = self.list_partitions(hive_table_model.db_name,
-                                               hive_table_model.table_name)
-        present_partitions_list = [item['clause'] for item in partitions_list]
+        partitions_list = self.list_partitions(
+            hive_table_model.db_name, hive_table_model.table_name
+        )
+        present_partitions_list = [item["clause"] for item in partitions_list]
 
         new_partitions_list = list(
-            set(present_partitions_list).difference(old_partitions_list))
+            set(present_partitions_list).difference(old_partitions_list)
+        )
 
         if not hive_table_model.is_inc_col_present:
             for clause in new_partitions_list:
                 logger.info("Found new partition {}".format(clause))
-                tracking_data.append({
-                    'table_name': hive_table_model.staging_table_name,
-                    'clause': clause
-                })
+                tracking_data.append(
+                    {
+                        "table_name": hive_table_model.staging_table_name,
+                        "clause": clause,
+                    }
+                )
 
         else:
             for clause in new_partitions_list:
@@ -954,16 +1135,22 @@ class HiveComponent(DatabaseComponent):
                 logger.info("Found new partition {}".format(clause))
                 results = self.execute_query(
                     "SELECT MIN({0}),MAX({0}) FROM {1}.{2} {3}".format(
-                        hive_table_model.inc_col, hive_table_model.db_name,
-                        hive_table_model.table_name, clause))
+                        hive_table_model.inc_col,
+                        hive_table_model.db_name,
+                        hive_table_model.table_name,
+                        clause,
+                    )
+                )
                 col_min, col_max = results[0]
-                tracking_data.append({
-                    "table_name": hive_table_model.staging_table_name,
-                    "id": 1,
-                    "inc_col_min": col_min,
-                    "inc_col_max": col_max,
-                    "clause": clause
-                })
+                tracking_data.append(
+                    {
+                        "table_name": hive_table_model.staging_table_name,
+                        "id": 1,
+                        "inc_col_min": col_min,
+                        "inc_col_max": col_max,
+                        "clause": clause,
+                    }
+                )
 
             logger.info("Checking for new data in existing partitions...")
             # Fetches maximum value of the incremental column for each
@@ -973,33 +1160,38 @@ class HiveComponent(DatabaseComponent):
 
                 results = mysql_component.execute_query(
                     "SELECT MAX(id),MAX(inc_col_max) FROM {0} WHERE "
-                    "clause='{1}'".format(hive_table_model.tracking_table_name,
-                                          clause))
+                    "clause='{1}'".format(hive_table_model.tracking_table_name, clause)
+                )
                 identifier, old_data_max = results[0]
                 logger.debug("Old maximum value %s - %s", clause, old_data_max)
 
                 results = self.execute_query(
                     "SELECT MAX({0}) FROM {1}.{2} {3}".format(
-                        hive_table_model.inc_col, hive_table_model.db_name,
-                        hive_table_model.table_name, clause))
+                        hive_table_model.inc_col,
+                        hive_table_model.db_name,
+                        hive_table_model.table_name,
+                        clause,
+                    )
+                )
                 new_data_max = results[0][0]
                 logger.debug("New maximum value %s - %s", clause, new_data_max)
 
                 new_data_exists = self.compare_max_values(
-                    hive_table_model, old_data_max, new_data_max)
+                    hive_table_model, old_data_max, new_data_max
+                )
                 # Appends information to the list if new data is found.
                 if new_data_exists:
-                    logger.info(
-                        "New data found in partition - {}".format(clause))
-                    tracking_data.append({
-                        "table_name": hive_table_model.staging_table_name,
-                        "id": identifier + 1,
-                        "inc_col_min": old_data_max,
-                        "inc_col_max": new_data_max,
-                        "clause": clause
-                    })
+                    logger.info("New data found in partition - {}".format(clause))
+                    tracking_data.append(
+                        {
+                            "table_name": hive_table_model.staging_table_name,
+                            "id": identifier + 1,
+                            "inc_col_min": old_data_max,
+                            "inc_col_max": new_data_max,
+                            "clause": clause,
+                        }
+                    )
                 else:
-                    logger.info(
-                        "No New data found in partition - {}".format(clause))
+                    logger.info("No New data found in partition - {}".format(clause))
 
         return tracking_data

@@ -30,7 +30,7 @@ from hive_to_bigquery import custom_exceptions
 from hive_to_bigquery.gcp_service import GCPService
 from hive_to_bigquery.properties_reader import PropertiesReader
 
-logger = logging.getLogger('Hive2BigQuery')
+logger = logging.getLogger("Hive2BigQuery")
 
 
 class BigQueryComponent(GCPService):
@@ -46,6 +46,7 @@ class BigQueryComponent(GCPService):
         client (google.cloud.bigquery.client.Client): BigQuery client.
 
     """
+
     def __init__(self, project_id):
 
         logger.debug("Initializing BigQuery Component")
@@ -141,15 +142,16 @@ class BigQueryComponent(GCPService):
         table_ref = self.client.dataset(dataset_id).table(table_name)
         try:
             self.client.delete_table(table_ref)
-            logger.debug("Deleted table %s from %s dataset", table_name,
-                         dataset_id)
+            logger.debug("Deleted table %s from %s dataset", table_name, dataset_id)
         except exceptions.NotFound as error:
             logger.debug(error)
-            logger.debug("Table %s not found in %s dataset. No need to delete",
-                         table_name, dataset_id)
+            logger.debug(
+                "Table %s not found in %s dataset. No need to delete",
+                table_name,
+                dataset_id,
+            )
 
-    def check_bq_write_mode(self, mysql_component, hive_table_model,
-                            bq_table_model):
+    def check_bq_write_mode(self, mysql_component, hive_table_model, bq_table_model):
         """Validates the bq_table_write_mode provided by user.
 
         If the mode is overwrite, drops the tracking table and deletes the
@@ -168,51 +170,58 @@ class BigQueryComponent(GCPService):
         Returns:
             boolean: True if the write mode is okay to use, else False.
         """
-        write_mode = PropertiesReader.get('bq_table_write_mode')
+        write_mode = PropertiesReader.get("bq_table_write_mode")
         logger.info(f"'{write_mode}' mode selected.")
         if write_mode == "overwrite":
-            # TODO(vincegonzalez): Don't delete the BQ table, instead replace 
+            # TODO(vincegonzalez): Don't delete the BQ table, instead replace
             # TODO(vincegonzalez): it with the load job.
             logger.debug("Deleting tracking table and BigQuery table...")
             mysql_component.drop_table(hive_table_model.tracking_table_name)
-            mysql_component.update_tracking_meta_table(hive_table_model,
-                                                       "DELETE")
-            self.delete_table(bq_table_model.dataset_id,
-                              bq_table_model.table_name)
+            mysql_component.update_tracking_meta_table(hive_table_model, "DELETE")
+            self.delete_table(bq_table_model.dataset_id, bq_table_model.table_name)
             hive_table_model.is_first_run = True
 
         elif write_mode == "create":
             if not hive_table_model.is_first_run:
                 raise exceptions.AlreadyExists(
                     "Tracking Table {} already exist".format(
-                        hive_table_model.tracking_table_name))
-            if self.check_bq_table_exists(bq_table_model.dataset_id,
-                                          bq_table_model.table_name):
+                        hive_table_model.tracking_table_name
+                    )
+                )
+            if self.check_bq_table_exists(
+                bq_table_model.dataset_id, bq_table_model.table_name
+            ):
                 raise exceptions.AlreadyExists(
                     "BigQuery Table {} already exist in {} dataset".format(
-                        bq_table_model.table_name, bq_table_model.dataset_id))
+                        bq_table_model.table_name, bq_table_model.dataset_id
+                    )
+                )
 
         elif write_mode == "append":
             if hive_table_model.is_first_run is False:
-                query = "SELECT COUNT(*) FROM {} WHERE " \
-                        "bq_job_status='RUNNING' OR " \
-                        "bq_job_status='DONE'".format(
-                            hive_table_model.tracking_table_name)
+                query = (
+                    "SELECT COUNT(*) FROM {} WHERE "
+                    "bq_job_status='RUNNING' OR "
+                    "bq_job_status='DONE'".format(hive_table_model.tracking_table_name)
+                )
                 results = mysql_component.execute_query(query)
                 if results[0][0] != 0:
                     if not self.check_bq_table_exists(
-                            bq_table_model.dataset_id,
-                            bq_table_model.table_name):
+                        bq_table_model.dataset_id, bq_table_model.table_name
+                    ):
                         raise exceptions.NotFound(
                             "Found the tracking table but BigQuery Table {} "
                             "doesn't exist in {} dataset. Clean up the "
                             "resources and try again".format(
-                                bq_table_model.table_name,
-                                bq_table_model.dataset_id))
+                                bq_table_model.table_name, bq_table_model.dataset_id
+                            )
+                        )
             else:
                 raise exceptions.NotFound(
                     "Tracking Table {} doesn't exist".format(
-                        hive_table_model.tracking_table_name))
+                        hive_table_model.tracking_table_name
+                    )
+                )
         else:
             raise ValueError(f"Invalid write mode selected: {write_mode}")
 
@@ -240,7 +249,8 @@ class BigQueryComponent(GCPService):
             # Specifies time-based partitioning for the table.
             job_config.time_partitioning = bigquery.table.TimePartitioning(
                 type_=bigquery.table.TimePartitioningType.DAY,
-                field=bq_table_model.partition_column)
+                field=bq_table_model.partition_column,
+            )
             if bq_table_model.is_clustered:
                 # Fields defining clustering for the table.
                 job_config.clustering_fields = bq_table_model.clustering_columns
@@ -255,13 +265,14 @@ class BigQueryComponent(GCPService):
             job_config.use_avro_logical_types = True
 
         # Creates load job
-        self.client.load_table_from_uri(source_uri,
-                                        dataset_ref.table(
-                                            bq_table_model.table_name),
-                                        job_config=job_config,
-                                        job_id=job_id)
+        self.client.load_table_from_uri(
+            source_uri,
+            dataset_ref.table(bq_table_model.table_name),
+            job_config=job_config,
+            job_id=job_id,
+        )
 
-    def get_bq_table_row_count(self, bq_table_model, clause=''):
+    def get_bq_table_row_count(self, bq_table_model, clause=""):
         """Queries the migrated BigQuery table to get a count of rows.
 
         Args:
@@ -274,15 +285,15 @@ class BigQueryComponent(GCPService):
         """
 
         query = "SELECT COUNT(*) AS n_rows FROM {0}.{1} {2}".format(
-            bq_table_model.dataset_id, bq_table_model.table_name, clause)
+            bq_table_model.dataset_id, bq_table_model.table_name, clause
+        )
         query_job = self.client.query(query)
         results = query_job.result()
         for row in results:
             n_rows = row.n_rows
             return n_rows
 
-    def load_gcs_to_bq(self, mysql_component, hive_table_model,
-                       bq_table_model):
+    def load_gcs_to_bq(self, mysql_component, hive_table_model, bq_table_model):
         """Loads data from GCS to BigQuery.
 
         Queries the tracking table and fetches information about the files
@@ -301,10 +312,12 @@ class BigQueryComponent(GCPService):
 
         logger.info(
             "Fetching information about files to load to BigQuery from "
-            "tracking table...")
-        query = "SELECT gcs_file_path FROM {} WHERE gcs_copy_status='DONE' " \
-                "AND bq_job_status='TODO'".format(
-                    hive_table_model.tracking_table_name)
+            "tracking table..."
+        )
+        query = (
+            "SELECT gcs_file_path FROM {} WHERE gcs_copy_status='DONE' "
+            "AND bq_job_status='TODO'".format(hive_table_model.tracking_table_name)
+        )
         results = mysql_component.execute_query(query)
         if not results:
             logger.info("No gcs files to load to BigQuery")
@@ -315,18 +328,26 @@ class BigQueryComponent(GCPService):
             # Starts the load job asynchronously.
             self.start_load_job(bq_table_model, gcs_source_uri, bq_job_id)
             # Updates the job status as RUNNING.
-            query = "UPDATE {0} SET bq_job_id='{1}',bq_job_status='RUNNING' " \
-                    "WHERE gcs_file_path='{2}'".format(
-                        hive_table_model.tracking_table_name,
-                        bq_job_id, gcs_source_uri)
+            query = (
+                "UPDATE {0} SET bq_job_id='{1}',bq_job_status='RUNNING' "
+                "WHERE gcs_file_path='{2}'".format(
+                    hive_table_model.tracking_table_name, bq_job_id, gcs_source_uri
+                )
+            )
             mysql_component.execute_transaction(query)
             logger.info(
                 "Updated BigQuery load job ID {} status TODO --> RUNNING for "
-                "file path {}".format(bq_job_id, gcs_source_uri))
+                "file path {}".format(bq_job_id, gcs_source_uri)
+            )
 
-    def update_bq_job_status(self, mysql_component, gcs_component,
-                             hive_table_model, bq_table_model,
-                             gcs_bucket_name):
+    def update_bq_job_status(
+        self,
+        mysql_component,
+        gcs_component,
+        hive_table_model,
+        bq_table_model,
+        gcs_bucket_name,
+    ):
         """Updates the status of running BigQuery load jobs.
 
         Queries the tracking table and fetches information about the load
@@ -351,15 +372,15 @@ class BigQueryComponent(GCPService):
         # Uodate this value to increase the maximum number of load job retries.
         bq_load_job_max_retries = 3
         logger.info(
-            "Fetching information about BigQuery load jobs from tracking "
-            "table...")
-        query = "SELECT gcs_file_path,bq_job_id,bq_job_retries FROM {} WHERE " \
-                "bq_job_status='RUNNING'".format(
-                    hive_table_model.tracking_table_name)
+            "Fetching information about BigQuery load jobs from tracking " "table..."
+        )
+        query = (
+            "SELECT gcs_file_path,bq_job_id,bq_job_retries FROM {} WHERE "
+            "bq_job_status='RUNNING'".format(hive_table_model.tracking_table_name)
+        )
         results = mysql_component.execute_query(query)
         if not results:
-            logger.info(
-                "No BigQuery job is in RUNNING state. No values to update")
+            logger.info("No BigQuery job is in RUNNING state. No values to update")
 
         # Waits till all the load jobs finish.
         while results:
@@ -367,67 +388,80 @@ class BigQueryComponent(GCPService):
             for row in results:
                 gcs_file_path, bq_job_id, bq_job_retries = row
                 # Gets information about the running job.
-                job = self.client.get_job(bq_job_id,
-                                          location=self.get_dataset_location(
-                                              bq_table_model.dataset_id))
+                job = self.client.get_job(
+                    bq_job_id,
+                    location=self.get_dataset_location(bq_table_model.dataset_id),
+                )
 
-                if job.state == 'DONE':
+                if job.state == "DONE":
                     # Job finished successfully.
                     if job.errors is None:
-                        query = "UPDATE {0} SET bq_job_status='DONE' WHERE " \
-                                "bq_job_id='{1}'".format(
-                                    hive_table_model.tracking_table_name,
-                                    bq_job_id)
+                        query = (
+                            "UPDATE {0} SET bq_job_status='DONE' WHERE "
+                            "bq_job_id='{1}'".format(
+                                hive_table_model.tracking_table_name, bq_job_id
+                            )
+                        )
                         mysql_component.execute_transaction(query)
                         logger.info(
                             "Updated BigQuery load job {} status RUNNING --> "
-                            "DONE".format(bq_job_id))
+                            "DONE".format(bq_job_id)
+                        )
                         # Deletes the data file in GCS.
-                        gcs_component.delete_file(gcs_bucket_name,
-                                                  gcs_file_path)
+                        gcs_component.delete_file(gcs_bucket_name, gcs_file_path)
                     # Job finished with error.
                     elif job.errors is not None:
 
                         if bq_job_retries == bq_load_job_max_retries:
-                            query = "UPDATE {0} SET bq_job_status='FAILED' " \
-                                    "WHERE bq_job_id='{1}'".format(
-                                        hive_table_model.tracking_table_name,
-                                        bq_job_id)
+                            query = (
+                                "UPDATE {0} SET bq_job_status='FAILED' "
+                                "WHERE bq_job_id='{1}'".format(
+                                    hive_table_model.tracking_table_name, bq_job_id
+                                )
+                            )
                             mysql_component.execute_transaction(query)
                             logger.info(
                                 f"BigQuery job {bq_job_id} failed.Tried for a maximum "
                                 f"of {bq_load_job_max_retries} times.Updated status RUNNING --> "
-                                "FAILED")
+                                "FAILED"
+                            )
                         else:
-                            query = "UPDATE {0} SET bq_job_status='TODO'," \
-                                    "bq_job_retries={1} WHERE " \
-                                    "bq_job_id='{2}'".format(
-                                        hive_table_model.tracking_table_name,
-                                        bq_job_retries + 1, bq_job_id)
+                            query = (
+                                "UPDATE {0} SET bq_job_status='TODO',"
+                                "bq_job_retries={1} WHERE "
+                                "bq_job_id='{2}'".format(
+                                    hive_table_model.tracking_table_name,
+                                    bq_job_retries + 1,
+                                    bq_job_id,
+                                )
+                            )
                             mysql_component.execute_transaction(query)
                             logger.info(
                                 f"BigQuery job {bq_job_id} failed.Updated status "
                                 "RUNNING --> TODO & increased retries count "
-                                "by 1")
+                                "by 1"
+                            )
 
-                elif job.state == 'RUNNING':
+                elif job.state == "RUNNING":
                     # Count of jobs which are still in running state.
                     count += 1
                 else:
-                    logger.debug("job id %s job state %s", bq_job_id,
-                                 job.state)
+                    logger.debug("job id %s job state %s", bq_job_id, job.state)
             if count == 0:
-                logger.info(
-                    "No BigQuery job is in RUNNING state. No values to update")
+                logger.info("No BigQuery job is in RUNNING state. No values to update")
                 break
-            logger.info("Waiting for 1 min..")
-            time.sleep(60)
+            # logger.info("Waiting for 1 min..")
+            # time.sleep(60)
             logger.info(
                 "Fetching information about BigQuery load jobs from tracking "
-                "table...")
-            query = "SELECT gcs_file_path,bq_job_id,bq_job_retries FROM {} " \
-                    "WHERE bq_job_status='RUNNING'".format(
-                        hive_table_model.tracking_table_name)
+                "table..."
+            )
+            query = (
+                "SELECT gcs_file_path,bq_job_id,bq_job_retries FROM {} "
+                "WHERE bq_job_status='RUNNING'".format(
+                    hive_table_model.tracking_table_name
+                )
+            )
             results = mysql_component.execute_query(query)
 
     @staticmethod
@@ -443,22 +477,21 @@ class BigQueryComponent(GCPService):
         """
 
         schema = [
-            bigquery.SchemaField('operation',
-                                 'STRING',
-                                 mode='REQUIRED',
-                                 description='operation'),
-            bigquery.SchemaField('table_name',
-                                 'STRING',
-                                 mode='REQUIRED',
-                                 description='Table name'),
-            bigquery.SchemaField('column_count',
-                                 'STRING',
-                                 mode='REQUIRED',
-                                 description='Number of columns'),
+            bigquery.SchemaField(
+                "operation", "STRING", mode="REQUIRED", description="operation"
+            ),
+            bigquery.SchemaField(
+                "table_name", "STRING", mode="REQUIRED", description="Table name"
+            ),
+            bigquery.SchemaField(
+                "column_count",
+                "STRING",
+                mode="REQUIRED",
+                description="Number of columns",
+            ),
         ]
         for col in columns_list:
-            schema.append(
-                bigquery.SchemaField(str(col), 'STRING', mode='REQUIRED'))
+            schema.append(bigquery.SchemaField(str(col), "STRING", mode="REQUIRED"))
         return schema
 
     @staticmethod
@@ -474,10 +507,10 @@ class BigQueryComponent(GCPService):
         """
 
         table_analysis = dict()
-        table_analysis['operation'] = "Hive"
-        table_analysis['table_name'] = hive_table_model.table_name
-        table_analysis['num_cols'] = str(hive_table_model.n_cols)
-        table_analysis['schema'] = hive_table_model.flat_schema
+        table_analysis["operation"] = "Hive"
+        table_analysis["table_name"] = hive_table_model.table_name
+        table_analysis["num_cols"] = str(hive_table_model.n_cols)
+        table_analysis["schema"] = hive_table_model.flat_schema
         return table_analysis
 
     @staticmethod
@@ -493,10 +526,10 @@ class BigQueryComponent(GCPService):
         """
 
         table_analysis = dict()
-        table_analysis['operation'] = "BigQuery"
-        table_analysis['table_name'] = bq_table_model.table_name
-        table_analysis['num_cols'] = str(bq_table_model.n_cols)
-        table_analysis['schema'] = bq_table_model.flat_schema
+        table_analysis["operation"] = "BigQuery"
+        table_analysis["table_name"] = bq_table_model.table_name
+        table_analysis["num_cols"] = str(bq_table_model.n_cols)
+        table_analysis["schema"] = bq_table_model.flat_schema
         return table_analysis
 
     @staticmethod
@@ -509,10 +542,10 @@ class BigQueryComponent(GCPService):
             columns_list (List[str]): List of flattened column names.
         """
 
-        data = [row['operation'], row['table_name'], row['num_cols']]
+        data = [row["operation"], row["table_name"], row["num_cols"]]
         for item in columns_list:
-            data.append(row['schema'][item])
-        with open(filename, 'a+') as csv_file:
+            data.append(row["schema"][item])
+        with open(filename, "a+") as csv_file:
             writer = csv.writer(csv_file)
             writer.writerow(data)
 
@@ -528,12 +561,13 @@ class BigQueryComponent(GCPService):
                 BigQuery table.
             columns_list (List[str]): List of flattened column names.
         """
+
         def read_validations():
             """Reads the set of Hive-BigQuery data type validation rules into a
             list."""
 
-            validations_csv_filename = 'validations.csv'
-            with open(validations_csv_filename, 'r') as file_content:
+            validations_csv_filename = "validations.csv"
+            with open(validations_csv_filename, "r") as file_content:
                 reader = csv.reader(file_content)
                 validations_list = [row for row in reader]
             return validations_list
@@ -545,24 +579,25 @@ class BigQueryComponent(GCPService):
             "operation": "Health Check",
             "table_name": "NA",
             "num_cols": "Fail",
-            "schema": {}
+            "schema": {},
         }
-        if hive_table_analysis['num_cols'] == bq_table_analysis['num_cols']:
+        if hive_table_analysis["num_cols"] == bq_table_analysis["num_cols"]:
             healths["num_cols"] = "Pass"
 
         for item in columns_list:
             # Reduce strings of array_ in the data type field.
-            if 'array_' in hive_table_analysis['schema'][item]:
-                hive_table_analysis['schema'][item] = '_'.join(
-                    hive_table_analysis['schema'][item].split('_')[-2:])
+            if "array_" in hive_table_analysis["schema"][item]:
+                hive_table_analysis["schema"][item] = "_".join(
+                    hive_table_analysis["schema"][item].split("_")[-2:]
+                )
 
-            if ([
-                    hive_table_analysis['schema'][item],
-                    bq_table_analysis['schema'][item]
-            ] in validation_rules):
-                healths['schema'][str(item)] = "Pass"
+            if [
+                hive_table_analysis["schema"][item],
+                bq_table_analysis["schema"][item],
+            ] in validation_rules:
+                healths["schema"][str(item)] = "Pass"
             else:
-                healths['schema'][str(item)] = "Fail"
+                healths["schema"][str(item)] = "Fail"
         return healths
 
     def load_csv_to_bigquery(self, csv_uri, dataset_id, table_name):
@@ -581,21 +616,24 @@ class BigQueryComponent(GCPService):
         job_config.source_format = bigquery.SourceFormat.CSV
         # Start load job.
         load_job = self.client.load_table_from_uri(
-            csv_uri, dataset_ref.table(table_name), job_config=job_config)
-        logger.info('Loading metrics data to BigQuery... Job {}'.format(
-            load_job.job_id))
+            csv_uri, dataset_ref.table(table_name), job_config=job_config
+        )
+        logger.info(
+            "Loading metrics data to BigQuery... Job {}".format(load_job.job_id)
+        )
         # wait for the job to completed.
         load_job.result()
 
-        destination_table = self.client.get_table(
-            dataset_ref.table(table_name))
+        destination_table = self.client.get_table(dataset_ref.table(table_name))
         logger.info(
             "Loaded {} rows in metrics table\nMigrated data successfully from "
             "Hive to BigQuery\nComparison metrics of tables available in "
-            "BigQuery table {}".format(destination_table.num_rows, table_name))
+            "BigQuery table {}".format(destination_table.num_rows, table_name)
+        )
 
-    def write_metrics_to_bigquery(self, gcs_component, hive_table_model,
-                                  bq_table_model):
+    def write_metrics_to_bigquery(
+        self, gcs_component, hive_table_model, bq_table_model
+    ):
         """Writes comparison metrics to BigQuery.
 
         Flattens the schema of both the Hive table and BigQuery table,
@@ -611,49 +649,55 @@ class BigQueryComponent(GCPService):
                 table details.
         """
 
-        metrics_table_name = PropertiesReader.get('hive_bq_comparison_table')
-        metrics_csv_filename = PropertiesReader.get('hive_bq_comparison_csv')
+        metrics_table_name = PropertiesReader.get("hive_bq_comparison_table")
+        metrics_csv_filename = PropertiesReader.get("hive_bq_comparison_csv")
 
         logger.info("Analyzing the Hive and BigQuery tables...")
 
         # Flattens the Hive table schema and writes row to CSV file.
         flat_list_columns = hive_table_model.flat_schema.keys()
         hive_table_analysis = self.analyze_hive_table(hive_table_model)
-        self.append_row_to_metrics_file(metrics_csv_filename,
-                                        hive_table_analysis, flat_list_columns)
+        self.append_row_to_metrics_file(
+            metrics_csv_filename, hive_table_analysis, flat_list_columns
+        )
         logger.debug("Analyzed Hive table metrics")
 
         # Flattens the BigQuery table schema and writes row to CSV file.
         bq_table_analysis = self.analyze_bq_table(bq_table_model)
-        self.append_row_to_metrics_file(metrics_csv_filename,
-                                        bq_table_analysis, flat_list_columns)
+        self.append_row_to_metrics_file(
+            metrics_csv_filename, bq_table_analysis, flat_list_columns
+        )
         logger.debug("Analyzed BigQuery table metrics")
 
         # Does Health checks by comparing Hive and BigQuery metrics.
-        healths = self.do_health_checks(hive_table_analysis, bq_table_analysis,
-                                        flat_list_columns)
-        self.append_row_to_metrics_file(metrics_csv_filename, healths,
-                                        flat_list_columns)
+        healths = self.do_health_checks(
+            hive_table_analysis, bq_table_analysis, flat_list_columns
+        )
+        self.append_row_to_metrics_file(
+            metrics_csv_filename, healths, flat_list_columns
+        )
         logger.debug("Health checks are done")
 
         logger.debug("Getting metrics table schema")
 
         logger.debug("Creating BigQuery metrics table")
         self.create_table(
-            bq_table_model.dataset_id, metrics_table_name,
-            self.generate_metrics_table_schema(flat_list_columns))
+            bq_table_model.dataset_id,
+            metrics_table_name,
+            self.generate_metrics_table_schema(flat_list_columns),
+        )
         # Uploads metrics CSV file to GCS bucket.
         blob_name = "BQ_staging/{}".format(metrics_csv_filename)
         csv_uri = gcs_component.upload_file(
-            PropertiesReader.get('gcs_bucket_name'), metrics_csv_filename,
-            blob_name)
+            PropertiesReader.get("gcs_bucket_name"), metrics_csv_filename, blob_name
+        )
         logger.debug("metrics CSV file is uploaded at %s", csv_uri)
         # Deletes local csv file.
         os.remove(metrics_csv_filename)
         # Loads CSV file to BigQuery metrics table.
-        self.load_csv_to_bigquery(csv_uri, bq_table_model.dataset_id,
-                                  metrics_table_name)
+        self.load_csv_to_bigquery(
+            csv_uri, bq_table_model.dataset_id, metrics_table_name
+        )
         # Deletes uploaded metrics CSV file in GCS bucket.
-        gcs_component.delete_file(PropertiesReader.get('gcs_bucket_name'),
-                                  blob_name)
+        gcs_component.delete_file(PropertiesReader.get("gcs_bucket_name"), blob_name)
         logger.debug("Deleting metrics CSV file at %s", csv_uri)

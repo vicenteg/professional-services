@@ -20,7 +20,7 @@ from collections import OrderedDict
 from hive_to_bigquery.hive_table_model import HiveTableModel
 from hive_to_bigquery.properties_reader import PropertiesReader
 
-logger = logging.getLogger('Hive2BigQuery')
+logger = logging.getLogger("Hive2BigQuery")
 
 
 class HiveTable(object):
@@ -37,14 +37,15 @@ class HiveTable(object):
         hive_table_model (hive_table_model.HiveTableModel): Instance of
             HiveTableModel which contains the Hive table details.
     """
-    def __init__(self, hive_component, database_name, table_name,
-                 incremental_col):
 
-        logger.debug('Initializing HiveTable object')
+    def __init__(self, hive_component, database_name, table_name, incremental_col):
+
+        logger.debug("Initializing HiveTable object")
         self._database_name = database_name
         self._table_name = table_name
         self.hive_table_model = self.initialize_hive_table_model(
-            hive_component, incremental_col)
+            hive_component, incremental_col
+        )
 
     @property
     def database_name(self):
@@ -69,19 +70,19 @@ class HiveTable(object):
         # Executes DESCRIBE EXTENDED <table_name> query.
         queries = [
             "set hive.ddl.output.format=json",
-            "desc extended {0}.{1}".format(self.database_name, self.table_name)
+            "desc extended {0}.{1}".format(self.database_name, self.table_name),
         ]
         results = json.loads(hive_component.execute_query(queries)[0][0])
 
         # Gets columns information.
         schema = OrderedDict()
-        for item in results['columns']:
-            schema[str(item['name'])] = str(item['type'])
+        for item in results["columns"]:
+            schema[str(item["name"])] = str(item["type"])
 
         # Input format of the data.
-        input_format = str(results['tableInfo']['sd']['inputFormat']).lower()
+        input_format = str(results["tableInfo"]["sd"]["inputFormat"]).lower()
 
-        logger.debug('Extracted information about Hive table columns')
+        logger.debug("Extracted information about Hive table columns")
 
         # Checks whether loading the data in same format is supported in
         # BigQuery.
@@ -101,10 +102,9 @@ class HiveTable(object):
 
         # Gets information of partition columns.
         partition_info = OrderedDict()
-        for item in results['tableInfo']['partitionKeys']:
-            partition_info[str(item['name'])] = str(item['type'])
-        logger.debug(
-            'Extracted information about Hive table partition columns')
+        for item in results["tableInfo"]["partitionKeys"]:
+            partition_info[str(item["name"])] = str(item["type"])
+        logger.debug("Extracted information about Hive table partition columns")
 
         # Fetches column names of integer/timestamp/date types.
         int_type_col = []
@@ -123,10 +123,11 @@ class HiveTable(object):
 
         # CREATE TABLE statement for the Hive staging table.
         create_statement = "CREATE TABLE default.TABLE_NAME_HERE ("
-        create_statement += ','.join("{} {}".format(key, value)
-                                     for key, value in schema.items())
+        create_statement += ",".join(
+            "{} {}".format(key, value) for key, value in schema.items()
+        )
         create_statement += ") STORED AS {}".format(destination_data_format)
-        logger.debug('Formed Hive stage table CREATE TABLE statement')
+        logger.debug("Formed Hive stage table CREATE TABLE statement")
 
         # Initializes HiveTableModel.
         hive_table_model = HiveTableModel(
@@ -139,12 +140,10 @@ class HiveTable(object):
                 "is_table_type_supported": is_table_type_supported,
             },
             inc_col=incremental_col,
-            inc_col_options={
-                "int": int_type_col,
-                "timestamp": timestamp_type_col
-            },
+            inc_col_options={"int": int_type_col, "timestamp": timestamp_type_col},
             destination_data_format=destination_data_format,
-            bq_table_name=PropertiesReader.get('bq_table'),
-            create_statement=create_statement)
+            bq_table_name=PropertiesReader.get("bq_table"),
+            create_statement=create_statement,
+        )
 
         return hive_table_model

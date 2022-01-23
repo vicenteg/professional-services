@@ -17,7 +17,7 @@ import logging
 
 from hive_to_bigquery.bigquery_table_model import BigQueryTableModel
 
-logger = logging.getLogger('Hive2BigQuery')
+logger = logging.getLogger("Hive2BigQuery")
 
 
 class BigQueryTable(object):
@@ -36,9 +36,10 @@ class BigQueryTable(object):
             BigQueryTableModel which contains the BigQuery table details.
 
     """
+
     def __init__(self, dataset_id, table_name, hive_table_model):
 
-        logger.debug('Initializing BigQueryTable object')
+        logger.debug("Initializing BigQueryTable object")
         self._dataset_id = dataset_id
         self._table_name = table_name
         self.bq_table_model = self.initialize_bq_table_model(hive_table_model)
@@ -64,8 +65,17 @@ class BigQueryTable(object):
 
         # Allowed data types in Hive for clustering in BigQuery.
         hive_allowed_types = [
-            'tinyint', 'smallint', 'int', 'bigint', 'decimal', 'char',
-            'varchar', 'string', 'timestamp', 'date', 'boolean'
+            "tinyint",
+            "smallint",
+            "int",
+            "bigint",
+            "decimal",
+            "char",
+            "varchar",
+            "string",
+            "timestamp",
+            "date",
+            "boolean",
         ]
         # Sets to default values.
         partition_column = None
@@ -81,8 +91,7 @@ class BigQueryTable(object):
         # Gets a list of clustering columns, if any applicable.
         if partition_column is not None:
             for name, col_type in hive_table_model.partition_info.items():
-                if (col_type in hive_allowed_types
-                        and name != partition_column):
+                if col_type in hive_allowed_types and name != partition_column:
                     clustering_columns.append(name)
 
         bq_table_model = BigQueryTableModel(
@@ -91,8 +100,9 @@ class BigQueryTable(object):
                 "table_name": self.table_name,
                 "schema": None,
                 "partition_column": partition_column,
-                "clustering_columns": clustering_columns[:4]
+                "clustering_columns": clustering_columns[:4],
             },
-            data_format=hive_table_model.destination_data_format)
+            data_format=hive_table_model.destination_data_format,
+        )
 
         return bq_table_model

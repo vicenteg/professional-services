@@ -26,11 +26,19 @@ def module_under_test():
 
 
 def test_decrypt_symmetric_calls_kms(module_under_test, mock_kms_client):
-    mock_kms_client.decrypt.return_value = google.cloud.kms_v1.types.AsymmetricDecryptResponse(plaintext=b"some plain text")
+    mock_kms_client.decrypt.return_value = (
+        google.cloud.kms_v1.types.AsymmetricDecryptResponse(
+            plaintext=b"some plain text"
+        )
+    )
 
     plaintext = module_under_test.decrypt_symmetric(
-        "my-kms-project", "some-location", "a-key-ring", "this-crypto-key",
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+        "my-kms-project",
+        "some-location",
+        "a-key-ring",
+        "this-crypto-key",
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    )
 
     assert plaintext == b"some plain text"
     mock_kms_client.assert_called_once_with(client_info=mock.ANY)
